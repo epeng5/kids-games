@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chance's F1 Racing</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow-x: hidden; background: #000; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── CONSTANTS ───────────────────────────────────────────────────────────
+const SW = 360, SH = 480;
+const HORIZON = 194;
+const DPIX = SH - HORIZON;
+const ROAD_HALF = 162;
+const DDIST = 245;
+const NSEGS = 1200;
+const MAX_LAPS = 5;
+const QUALI_LAPS = 3;
+const CF = 0.46;
+const BASE_MAX = 1.44;
+const KMH = 340;
+const FUEL_START = 100;
+const FUEL_RATE = 0.000055;
+const ERS_MAX = 8000;
+const ERS_DEPLOY = 22;
+const ERS_HARVEST = 6;
+const DRS_GAIN = 0.13;
+const PIT_DUR = 175;
+const MAX_DROPS = 180;
+const MAX_SPLASH = 40;
+const FLAG_NONE = "none", FLAG_YELLOW = "yellow", FLAG_RED = "red";
+const YELLOW_DUR = 420, RED_DUR = 600;
+const POINTS_TABLE = [25,18,15,12,10,8,6,4,2,1];
+const SEASON_ROUNDS = 8;
+const ORDINALS = ["P1 🥇","P2 🥈","P3 🥉","P4","P5","P6","P7","P8","P9","P10","P11","P12","P13","P14","P15","P16","P17","P18","P19","P20"];
+
+const CIRCUITS = [
+  {name:"MONACO",      country:"🇲🇨"},
+  {name:"SILVERSTONE", country:"🇬🇧"},
+  {name:"MONZA",       country:"🇮🇹"},
+  {name:"SPA",         country:"🇧🇪"},
+  {name:"SUZUKA",      country:"🇯🇵"},
+  {name:"INTERLAGOS",  country:"🇧🇷"},
+  {name:"BARCELONA",   country:"🇪🇸"},
+  {name:"ABU DHABI",   country:"🇦🇪"},
+];
+
+const TIRES = {
+  soft:  {name:"SOFT",  abbr:"S",col:"#ff3333",maxWear:95, dryG:1.00,wetG:0.52,optT:95, hR:1.3,tag:"Fastest, wears quickly"},
+  medium:{name:"MED",   abbr:"M",col:"#ffdd00",maxWear:170,dryG:0.976,wetG:0.57,optT:90, hR:1.0,tag:"Good balance"},
+  hard:  {name:"HARD",  abbr:"H",col:"#cccccc",maxWear:265,dryG:0.954,wetG:0.50,optT:88, hR:0.8,tag:"Durable, slower"},
+  inter: {name:"INTER", abbr:"I",col:"#44cc44",maxWear:195,dryG:0.87, wetG:0.95,optT:75, hR:0.9,tag:"Damp/light rain"},
+  wet:   {name:"WET",   abbr:"W",col:"#4499ff",maxWear:240,dryG:0.79, wetG:1.00,optT:65, hR:0.7,tag:"Heavy rain only"},
+};
+
+const RADIO_MSGS = [
+  "Box box box! Tires are gone.",
+  "Push push push, gap is closing!",
+  "DRS available next straight.",
+  "Watch your fuel, lift and coast.",
+  "Brilliant lap! Keep that up!",
+  "P1 is only 1.2 seconds ahead.",
+  "ERS is full, deploy on straight.",
+  "Watch out, Verstappen is closing.",
+  "Careful on the kerbs!",
+  "That's it! Fastest sector 2!",
+];
+
+// ── TRACK ───────────────────────────────────────────────────────────────
+const SEGS = [];
+function addS(n,c){for(let i=0;i<n;i++)SEGS.push({curve:c,alt:Math.floor(SEGS.length/14)%2,drs:false});}
+addS(80,0);addS(60,-2.1);addS(30,0);addS(65,2.7);addS(50,0);addS(75,-1.5);addS(35,0);addS(55,3.2);
+addS(80,0);addS(50,-2.8);addS(28,0);addS(70,2.1);addS(55,0);addS(45,-3.8);addS(38,0);addS(60,3.6);addS(95,0);
+while(SEGS.length<NSEGS)SEGS.push({curve:0,alt:Math.floor(SEGS.length/14)%2,drs:false});
+SEGS.length=NSEGS;
+for(let i=0;i<70;i++)SEGS[i].drs=true;
+for(let i=620;i<700;i++)SEGS[i].drs=true;
+const S_GATES=[0,400,800];
+
+const curveTable=new Float32Array(SH);
+function buildCurveTable(gz,gcam){
+  let cx=0,psa=0;
+  for(let y=SH-1;y>=HORIZON+1;y--){
+    const ry=y-HORIZON,sa=DDIST/ry;
+    cx+=SEGS[Math.floor(gz+sa)%NSEGS].curve*(sa-psa)*CF;psa=sa;
+    curveTable[y]=cx;
+  }
+}
+
+// ── AI DRIVERS ──────────────────────────────────────────────────────────
+const AI_CFGS = [
+  {name:"NORRIS",    short:"NOR",team:"McLaren",      col:"#FF8000",startZ:1.8, base:1.032,tire:"medium",qualiBase:1145},
+  {name:"VERSTAPPEN",short:"VER",team:"Red Bull",     col:"#3671C6",startZ:2.4, base:1.038,tire:"soft",  qualiBase:1130},
+  {name:"RUSSELL",   short:"RUS",team:"Mercedes",     col:"#00D2BE",startZ:3.0, base:1.028,tire:"medium",qualiBase:1155},
+  {name:"ALONSO",    short:"ALO",team:"Aston Martin", col:"#358C75",startZ:3.6, base:1.022,tire:"hard",  qualiBase:1165},
+  {name:"LECLERC",   short:"LEC",team:"Ferrari",      col:"#cc0022",startZ:4.2, base:1.03,tire:"soft",  qualiBase:1150},
+  {name:"PIASTRI",   short:"PIA",team:"McLaren",      col:"#FF6600",startZ:4.8, base:1.03,tire:"medium",qualiBase:1148},
+  {name:"ANTONELLI", short:"ANT",team:"Mercedes",     col:"#00B8A8",startZ:5.4, base:1.025,tire:"soft",  qualiBase:1158},
+  {name:"HADJAR",    short:"HAD",team:"Red Bull",     col:"#2255AA",startZ:6.0, base:1.02,tire:"medium",qualiBase:1163},
+  {name:"BEARMAN",   short:"BEA",team:"Haas",         col:"#B6BABD",startZ:6.6, base:1.015,tire:"hard",  qualiBase:1170},
+  {name:"GASLY",     short:"GAS",team:"Alpine",       col:"#FF87BC",startZ:7.2, base:1.012,tire:"medium",qualiBase:1174},
+  {name:"COLAPINTO", short:"COL",team:"Alpine",       col:"#FF60A0",startZ:7.8, base:1.008,tire:"soft",  qualiBase:1178},
+  {name:"ALBON",     short:"ALB",team:"Williams",     col:"#64C4FF",startZ:8.4, base:1.005,tire:"medium",qualiBase:1182},
+  {name:"SAINZ",     short:"SAI",team:"Williams",     col:"#4488CC",startZ:9.0, base:1.002,tire:"hard",  qualiBase:1185},
+  {name:"HULKENBERG",short:"HUL",team:"Audi",         col:"#BB0000",startZ:9.6, base:0.998,tire:"medium",qualiBase:1190},
+  {name:"BORTOLETO", short:"BOR",team:"Audi",         col:"#990000",startZ:10.2,base:0.995,tire:"soft",  qualiBase:1193},
+  {name:"OCON",      short:"OCO",team:"Haas",         col:"#888888",startZ:10.8,base:0.992,tire:"medium",qualiBase:1197},
+  {name:"STROLL",    short:"STR",team:"Aston Martin", col:"#226655",startZ:11.4,base:0.988,tire:"hard",  qualiBase:1202},
+  {name:"PEREZ",     short:"PER",team:"Cadillac",     col:"#1B3A6B",startZ:12.0,base:0.985,tire:"medium",qualiBase:1206},
+  {name:"BOTTAS",    short:"BOT",team:"Cadillac",     col:"#152E55",startZ:12.6,base:0.982,tire:"hard",  qualiBase:1210},
+];
+
+function fmtT(f){
+  if(!f||f<=0)return "--.-";
+  const s=f/60,m=Math.floor(s/60),sec=s%60;
+  return m>0?`${m}:${sec.toFixed(3).padStart(6,"0")}`:`${sec.toFixed(3)}`;
+}
+
+// ── GAME STATE ──────────────────────────────────────────────────────────
+function mkQuali(pTire,weather,session,activeNames){
+  const boost=session===3?-80:session===2?-40:0;
+  const all=AI_CFGS.filter(c=>!activeNames||activeNames.includes(c.name));
+  return {
+    z:0,x:0,speed:0,steer:0,cam:0,raceOn:false,fc:0,
+    tire:pTire,tireWear:0,tireTemp:40,fuel:FUEL_START,damage:0,
+    ers:ERS_MAX,ersD:false,drsOpen:false,drsAvail:false,
+    qualiPhase:"outlap",lap:1,lapStart:0,lapsDone:0,
+    pitPhase:"none",pitTimer:0,pitReq:false,nextTire:"soft",
+    bestLap:0,lastLap:0,sector:0,sectorStart:0,sectorTimes:[0,0,0],
+    weather,rainInt:weather==="wet"?0.65:0,trackWet:weather==="wet"?0.75:0,
+    wPhase:weather==="wet"?1:0,wTimer:0,wDur:weather==="dry"?99999:0,
+    drops:[],splashes:[],radioMsg:"",radioTimer:0,_session:session||1,
+    ais:all.map((c,i)=>({...c,
+      z:(i/all.length)*NSEGS*0.9,x:0,tx:0,lap:1,
+      speed:c.base*0.72,tire:"soft",tireWear:0,tireTemp:45,
+      bestLap:0,qLap:1,qLapStart:-(i*160),qPhase:"outlap",qLapsDone:0,
+      _qBoost:boost,
+    })),
+  };
+}
+
+function mkRace(pTire,weather,grid){
+  const total=grid.length;
+  const pIdx=grid.findIndex(g=>g.isPlayer);
+  const pZ=(total-1-pIdx)*0.65;
+  return {
+    z:pZ,x:pIdx%2===0?-0.28:0.28,speed:0,steer:0,cam:0,
+    lap:1,finished:false,raceOn:false,lights:0,fc:0,
+    tire:pTire,tireWear:0,tireTemp:40,fuel:FUEL_START,damage:0,
+    ers:ERS_MAX,ersD:false,drsOpen:false,drsAvail:false,
+    pitReq:false,nextTire:"medium",pitPhase:"none",pitTimer:0,pitCount:0,
+    sector:0,sectorStart:0,sectorTimes:[0,0,0],lastLap:0,bestLap:0,lapStart:0,
+    gapAhead:null,gapBehind:null,
+    weather,rainInt:weather==="wet"?0.65:0,trackWet:weather==="wet"?0.75:0,
+    wPhase:weather==="wet"?1:0,wTimer:0,wDur:weather==="dry"?99999:0,
+    drops:[],splashes:[],radioMsg:"",radioTimer:0,
+    flag:FLAG_NONE,flagTimer:0,gridPos:pIdx,
+    ais:grid.filter(g=>!g.isPlayer).map(g=>{
+      const gi=grid.findIndex(x=>x===g);
+      return {...g,z:(total-1-gi)*0.65,x:gi%2===0?-0.28:0.28,tx:0,lap:1,
+        finished:false,speed:g.base||0.85,tire:g.tire||"medium",
+        tireWear:0,tireTemp:45,pitPhase:"none",pitTimer:0,hasPitted:false,fuel:FUEL_START};
+    }),
+  };
+}
+
+// ── WEATHER ─────────────────────────────────────────────────────────────
+function tickWeather(gs){
+  if(gs.weather==="dry")return;
+  gs.wTimer+=4;
+  if(gs.wTimer>gs.wDur){gs.wTimer=0;gs.wPhase=Math.min(gs.wPhase+1,4);gs.wDur=700+Math.random()*1100;}
+  const phases=["dry","lightRain","heavyRain","lightRain","dry"];
+  const tR=phases[gs.wPhase]==="dry"?0:phases[gs.wPhase]==="lightRain"?0.42:0.88;
+  gs.rainInt+=(tR-gs.rainInt)*0.008;gs.trackWet+=(tR-gs.trackWet)*0.003;
+  if(gs.rainInt>0.05&&gs.drops.length<MAX_DROPS){
+    const add=Math.min(Math.floor(gs.rainInt*10),MAX_DROPS-gs.drops.length);
+    for(let i=0;i<add;i++)gs.drops.push({x:Math.random()*SW,y:Math.random()*HORIZON,vx:gs.rainInt*1.8,vy:7+Math.random()*5});
+  }
+  for(let i=gs.drops.length-1;i>=0;i--){gs.drops[i].x+=gs.drops[i].vx;gs.drops[i].y+=gs.drops[i].vy;if(gs.drops[i].y>HORIZON+16)gs.drops.splice(i,1);}
+  if(gs.trackWet>0.3&&gs.splashes.length<MAX_SPLASH&&Math.random()<gs.trackWet*0.25)
+    gs.splashes.push({x:SW/2+(Math.random()-0.5)*72,y:SH-72-Math.random()*105,r:1,life:16});
+  for(let i=gs.splashes.length-1;i>=0;i--){gs.splashes[i].r+=0.7;gs.splashes[i].life--;if(gs.splashes[i].life<=0)gs.splashes.splice(i,1);}
+}
+
+// ── DRAW FUNCTIONS ──────────────────────────────────────────────────────
+function drawRoad(ctx,gz,gx,gcam,wet){
+  const sk=ctx.createLinearGradient(0,0,0,HORIZON);
+  sk.addColorStop(0,wet>0.3?"#080a16":"#04040d");
+  sk.addColorStop(1,wet>0.3?"#0f1930":"#152038");
+  ctx.fillStyle=sk;ctx.fillRect(0,0,SW,HORIZON);
+
+  // Clouds or stars
+  if(wet>0.1){for(let i=0;i<5;i++){ctx.fillStyle=`rgba(35,40,55,${Math.min(wet*0.9,0.82)})`;ctx.beginPath();ctx.ellipse(38+i*66,16+i*9,54+i*9,20,0,0,Math.PI*2);ctx.fill();}}
+  else{for(let i=0;i<24;i++){ctx.fillStyle=`rgba(255,255,255,${0.18+(i%3)*0.16})`;ctx.fillRect((i*179+31)%SW,(i*107+17)%(HORIZON-10),1,1);}}
+
+  // Grandstand structure (static — cheap)
+  ctx.fillStyle="#1a1a2a";
+  ctx.beginPath();ctx.moveTo(0,HORIZON);ctx.lineTo(0,HORIZON-52);ctx.lineTo(SW*0.38,HORIZON-52);ctx.lineTo(SW*0.42,HORIZON);ctx.closePath();ctx.fill();
+  ctx.fillStyle="#222233";ctx.fillRect(0,HORIZON-58,SW*0.41,8);
+  ctx.fillStyle="#e8002d";ctx.fillRect(0,HORIZON-58,SW*0.41,3);
+  ctx.fillStyle="#1a1a2a";
+  ctx.beginPath();ctx.moveTo(SW,HORIZON);ctx.lineTo(SW,HORIZON-48);ctx.lineTo(SW*0.62,HORIZON-48);ctx.lineTo(SW*0.58,HORIZON);ctx.closePath();ctx.fill();
+  ctx.fillStyle="#222233";ctx.fillRect(SW*0.59,HORIZON-54,SW*0.41,8);
+  ctx.fillStyle="#e8002d";ctx.fillRect(SW*0.59,HORIZON-54,SW*0.41,3);
+
+  // Fans: draw as simple coloured pixel rows (no arc calls)
+  const fanScroll=Math.floor(gz*0.18)%SW;
+  const FC=["#ff4444","#4488ff","#ffdd00","#ffffff","#ff8800","#44ff88","#aa44ff","#ff44aa"];
+  for(let row=0;row<4;row++){
+    const ry2=HORIZON-14-row*11,rw=Math.floor(SW*0.38-row*8);
+    for(let f=0;f<rw;f+=5){
+      const fx=((f+fanScroll*(1+row*0.2))|0)%rw;
+      if(fx<0||fx>=rw-4)continue;
+      ctx.fillStyle=FC[(f/5*7+row*13)%FC.length|0];
+      ctx.fillRect(fx,ry2,4,5);
+      ctx.fillStyle="#c8956c";ctx.fillRect(fx+1,ry2-3,2,3);
+    }
+  }
+  for(let row=0;row<3;row++){
+    const sx=Math.floor(SW*0.60+row*4),rw=SW-sx-2;
+    const ry2=HORIZON-14-row*10;
+    for(let f=0;f<rw;f+=5){
+      const fx=sx+(((f+fanScroll*(1.1+row*0.15))|0)%rw);
+      if(fx<sx||fx>SW-6)continue;
+      ctx.fillStyle=FC[(f/5*11+row*7+3)%FC.length|0];
+      ctx.fillRect(fx,ry2,4,5);
+      ctx.fillStyle="#c8956c";ctx.fillRect(fx+1,ry2-3,2,3);
+    }
+  }
+  // Banners
+  const bn=["HAMILTON","FERRARI","GO HAM!","44"];
+  for(let b=0;b<3;b++){
+    const bx=((b*120+(fanScroll*0.5)|0)%(SW*0.38|0))-10;
+    if(bx>0&&bx<SW*0.34){
+      ctx.fillStyle=b%2===0?"#e8002d":"#ffdd00";ctx.fillRect(bx,HORIZON-26,36,8);
+      ctx.fillStyle="#fff";ctx.font="700 5px monospace";ctx.textAlign="center";
+      ctx.fillText(bn[b%bn.length],bx+18,HORIZON-20);
+    }
+  }
+
+  // Road
+  for(let y=SH-1;y>=HORIZON+1;y--){
+    const ry=y-HORIZON,rh=ROAD_HALF*ry/DPIX;
+    const si=Math.floor(gz+DDIST/ry)%NSEGS,seg=SEGS[si];
+    const cx=SW/2-gx*rh-curveTable[y]+gcam;
+    ctx.fillStyle=seg.alt?(wet>0.2?"#13501a":"#195c19"):(wet>0.2?"#104415":"#165016");
+    ctx.fillRect(0,y,SW,1);
+    const rb=seg.alt?58:51,ws=wet*15;
+    ctx.fillStyle=`rgb(${rb-ws},${rb-ws+wet*5},${rb-ws+wet*11})`;
+    ctx.fillRect(cx-rh,y,rh*2,1);
+
+    // Pit lane (only draw every 3 rows for performance)
+    if(y%3===0){
+      const inPitZone=si<65||si>NSEGS-65;
+      if(inPitZone&&rh>20){
+        const pitW=Math.max(2,rh*0.38),pitX=cx+rh+2;
+        ctx.fillStyle=seg.alt?"#2e2e2e":"#282828";ctx.fillRect(pitX,y,pitW,3);
+        if(rh>30){ctx.fillStyle="rgba(255,255,255,0.5)";ctx.fillRect(pitX,y,1.5,3);}
+        if(rh>40&&si%6===0){
+          const pitBoxColors=["#e8002d","#FF8000","#3671C6","#00D2BE","#358C75","#FF87BC","#64C4FF","#BB0000","#B6BABD","#1B3A6B"];
+          ctx.fillStyle=pitBoxColors[Math.floor(si/6)%pitBoxColors.length];
+          ctx.fillRect(pitX+pitW*0.1,y,pitW*0.8,2);
+        }
+      }
+    }
+
+    if(seg.drs&&rh>18){ctx.fillStyle="rgba(0,220,100,0.05)";ctx.fillRect(cx-rh+2,y,rh*2-4,1);}
+    if(wet>0.2&&ry<DPIX*0.5){ctx.fillStyle=`rgba(85,125,200,${wet*0.13*(1-ry/DPIX)})`;ctx.fillRect(cx-rh*0.6,y,rh*1.2,1);}
+    if(wet>0.5&&seg.alt&&rh>26){ctx.fillStyle=`rgba(65,110,190,${wet*0.18})`;ctx.fillRect(cx-rh*0.4,y,rh*0.35,1);ctx.fillRect(cx+rh*0.07,y,rh*0.26,1);}
+    if(rh>8){
+      const kw=Math.max(1,rh*0.1);
+      ctx.fillStyle=Math.floor(si/3)%2===0?"#e8002d":"#fff";
+      ctx.fillRect(cx-rh,y,kw,1);ctx.fillRect(cx+rh-kw,y,kw,1);
+    }
+    if(seg.alt&&rh>16){ctx.fillStyle=`rgba(255,255,150,${0.36*(1-wet*0.5)})`;ctx.fillRect(cx-1.5,y,3,1);}
+    for(const g of S_GATES){if(Math.abs(si-g)<2){ctx.fillStyle="rgba(255,220,0,0.55)";ctx.fillRect(cx-rh,y,rh*2,1);}}
+  }
+}
+
+function getCX(gz,gx,gcam,y){
+  let cx=0,p=0;
+  for(let yy=SH-1;yy>=y;yy--){
+    const ry=yy-HORIZON;if(ry<=0)break;
+    const sa=DDIST/ry;cx+=SEGS[Math.floor(gz+sa)%NSEGS].curve*(sa-p)*CF;p=sa;
+  }
+  return cx;
+}
+
+function drawAIs(ctx,gz,gx,gcam,wet,ais){
+  for(const ai of ais){
+    if(ai.pitPhase==="stopped")continue;
+    const ah=ai.z-gz;
+    if(ah<0.5||ah>DDIST*0.88)continue;
+    const ry=DDIST/ah,ay=HORIZON+ry;
+    if(ay>=SH-10||ay<=HORIZON+2)continue;
+    const rh=ROAD_HALF*ry/DPIX;
+    const row=Math.min(Math.max(Math.floor(ay),HORIZON+1),SH-1);
+    const cx=SW/2-gx*rh-curveTable[row]+gcam;
+    const sc=ry/DPIX,cw=Math.max(4,54*sc),ch=Math.max(3,30*sc);
+    const ax=cx+ai.x*rh;
+    if(wet>0.28&&sc>0.06){
+      ctx.fillStyle=`rgba(125,160,215,${wet*0.18})`;
+      ctx.fillRect(ax-cw*1.2,ay-ch*0.5,cw*2.4,ch*2.8);
+    }
+    ctx.fillStyle="rgba(0,0,0,0.25)";ctx.fillRect(ax-cw/2+2,ay-2,cw,4);
+    ctx.fillStyle=ai.col;ctx.fillRect(ax-cw/2,ay-ch,cw,ch);
+    ctx.fillStyle="rgba(0,0,0,0.4)";ctx.fillRect(ax-cw*0.17,ay-ch*0.83,cw*0.34,ch*0.46);
+    ctx.fillStyle=ai.col;ctx.fillRect(ax-cw*0.5,ay-ch-ch*0.1,cw,ch*0.09);
+    if(sc>0.18){
+      ctx.fillStyle="rgba(0,0,0,0.65)";ctx.fillRect(ax-cw*0.6,ay-ch-11,cw*1.2,8);
+      ctx.fillStyle=ai.col;ctx.font=`700 ${Math.max(5,6*sc)}px monospace`;ctx.textAlign="center";
+      ctx.fillText(ai.short,ax,ay-ch-4);
+    }
+  }
+}
+
+function drawRain(ctx,drops,ri){
+  if(ri<0.05||!drops.length)return;
+  ctx.strokeStyle=`rgba(155,190,255,${ri*0.45})`;ctx.lineWidth=0.9;
+  ctx.beginPath();for(const d of drops){ctx.moveTo(d.x,d.y);ctx.lineTo(d.x+d.vx*0.3,d.y+d.vy*0.3);}ctx.stroke();
+}
+
+function drawCockpit(ctx,steer,speed,wet,drsOpen,ersD){
+  const ratio=Math.max(0,Math.min(speed/BASE_MAX,1));
+  const rpmCol=ratio>0.9?"#ff0a0a":ratio>0.72?"#ff8800":"#00aaff";
+  ctx.fillStyle="#080808";
+  ctx.beginPath();ctx.moveTo(0,SH);ctx.lineTo(0,SH*0.55);ctx.lineTo(SW*0.14,SH*0.525);ctx.lineTo(SW*0.275,SH*0.59);ctx.lineTo(SW*0.275,SH);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(SW,SH);ctx.lineTo(SW,SH*0.55);ctx.lineTo(SW*0.86,SH*0.525);ctx.lineTo(SW*0.725,SH*0.59);ctx.lineTo(SW*0.725,SH);ctx.closePath();ctx.fill();
+  ctx.strokeStyle="#e8002d";ctx.lineWidth=2.5;
+  ctx.beginPath();ctx.moveTo(SW*0.265,SH*0.58);ctx.lineTo(SW*0.265,SH);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(SW*0.735,SH*0.58);ctx.lineTo(SW*0.735,SH);ctx.stroke();
+  ctx.fillStyle="#111";ctx.fillRect(SW*0.11,SH*0.49,30,9);ctx.fillRect(SW*0.68,SH*0.49,30,9);
+  const mC=wet>0.2?`rgba(${80+wet*40|0},${120+wet*30|0},220,0.75)`:"#1e2530";
+  ctx.fillStyle=mC;ctx.beginPath();ctx.ellipse(SW*0.11+15,SH*0.494,14,6.5,-0.12,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(SW*0.68+15,SH*0.494,14,6.5,0.12,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#060606";
+  ctx.beginPath();ctx.moveTo(SW*0.275,SH);ctx.lineTo(SW*0.275,SH*0.745);ctx.quadraticCurveTo(SW/2,SH*0.685,SW*0.725,SH*0.745);ctx.lineTo(SW*0.725,SH);ctx.closePath();ctx.fill();
+  ctx.fillStyle="#010a18";
+  ctx.beginPath();ctx.moveTo(SW*0.355,SH*0.758);ctx.lineTo(SW*0.375,SH*0.722);ctx.quadraticCurveTo(SW/2,SH*0.700,SW*0.625,SH*0.722);ctx.lineTo(SW*0.645,SH*0.758);ctx.closePath();ctx.fill();
+  const rW=SW*0.268;
+  ctx.fillStyle="#0a0a0a";ctx.fillRect(SW*0.366,SH*0.728,rW,5);
+  const rG=ctx.createLinearGradient(SW*0.366,0,SW*0.366+rW,0);
+  rG.addColorStop(0,drsOpen?"#00ff88":ersD?"#aa00ff":rpmCol);
+  rG.addColorStop(1,drsOpen?"#00dd44":ersD?"#ff00cc":"#ff0000");
+  ctx.fillStyle=rG;ctx.fillRect(SW*0.366,SH*0.728,rW*ratio,5);
+  for(let g=0;g<12;g++){
+    ctx.fillStyle=ratio>g/12?(g>9?"#ff0000":g>7?"#ff8800":"#00ee44"):"#0d0d0d";
+    ctx.beginPath();ctx.arc(SW*0.366+g*rW/12+3,SH*0.722,2,0,Math.PI*2);ctx.fill();
+  }
+  ctx.font="900 16px monospace";ctx.fillStyle=drsOpen?"#00ff88":ersD?"#cc44ff":"#fff";
+  ctx.textAlign="center";ctx.fillText(Math.round(ratio*KMH),SW/2,SH*0.765);
+  ctx.font="400 7px monospace";ctx.fillStyle="#2a5a78";ctx.fillText("KM/H",SW/2,SH*0.776);
+  const gear=Math.min((ratio*8|0)+1,8);
+  ctx.font="900 14px monospace";ctx.fillStyle=rpmCol;ctx.fillText(gear,SW*0.435,SH*0.765);
+  ctx.font="400 6px monospace";ctx.fillStyle="#222";ctx.fillText("GEAR",SW*0.435,SH*0.775);
+  if(drsOpen){ctx.fillStyle="#00ff88";ctx.font="900 8px monospace";ctx.fillText("DRS",SW*0.565,SH*0.760);}
+  if(wet>0.15){ctx.save();ctx.globalAlpha=wet*0.18;ctx.strokeStyle="#8ab4f8";ctx.lineWidth=0.8;for(let i=0;i<10;i++){ctx.beginPath();ctx.moveTo(SW*0.29+i*6,SH*0.525);ctx.lineTo(SW*0.29+i*6+0.5,SH*0.525+10+i%3*4);ctx.stroke();}ctx.restore();}
+  // Wheel
+  ctx.save();ctx.translate(SW/2,SH*0.905);ctx.rotate((steer/28)*(Math.PI/2.8));
+  ctx.strokeStyle="#2c2c2c";ctx.lineWidth=9;ctx.beginPath();ctx.arc(0,0,40,0,Math.PI*2);ctx.stroke();
+  ctx.strokeStyle="#282828";ctx.lineWidth=7;ctx.beginPath();ctx.arc(0,0,40,Math.PI*0.18,Math.PI*0.82);ctx.stroke();
+  ctx.strokeStyle="#1e1e1e";ctx.lineWidth=5;
+  for(const a of[-Math.PI*0.27,0,Math.PI*0.27,Math.PI]){ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(a)*40,Math.sin(a)*40);ctx.stroke();}
+  ctx.fillStyle="#0d0d0d";ctx.beginPath();ctx.arc(0,0,11,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#e8002d";ctx.fillRect(-9,-5,18,10);
+  ctx.fillStyle="#ffef00";ctx.font="bold 5.5px monospace";ctx.textAlign="center";ctx.fillText("SF",0,2.5);
+  for(let g=0;g<8;g++){ctx.fillStyle=g<gear?(ratio>0.9?"#ff0000":ratio>0.72?"#ff8800":"#00ee44"):"#0d0d0d";ctx.beginPath();ctx.arc(-17+g*4.8,-36,2.2,0,Math.PI*2);ctx.fill();}
+  ctx.restore();
+}
+
+function drawQualiHUD(ctx,gs){
+  ctx.fillStyle="rgba(0,0,0,0.85)";ctx.fillRect(0,0,SW,22);
+  const sn=gs._session||1,sc2=sn===3?"#ffdd00":sn===2?"#ff6600":"#ffaa00";
+  ["Q1","Q2","Q3"].forEach((q,qi)=>{
+    const active=(qi+1)===sn,done=(qi+1)<sn;
+    ctx.fillStyle=active?sc2:done?"#333":"#111";ctx.fillRect(4+qi*36,2,32,17);
+    ctx.fillStyle=active?"#000":done?"#555":"#333";
+    ctx.font="900 8px monospace";ctx.textAlign="center";ctx.fillText(q+(done?"✓":""),4+qi*36+16,13);
+  });
+  ctx.fillStyle="#555";ctx.font="700 8px monospace";ctx.textAlign="left";
+  ctx.fillText(`LAP ${gs.lapsDone+1}/${QUALI_LAPS}`,118,13);
+  const phC={outlap:"#4488ff",flying:"#ffdd00",cooldown:"#44aa44",done:"#888"}[gs.qualiPhase]||"#888";
+  const phT={outlap:"OUT LAP",flying:"FLYING LAP ⚡",cooldown:"COOL DOWN",done:"DONE"}[gs.qualiPhase]||"";
+  ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(SW-130,2,128,17);
+  ctx.fillStyle=phC;ctx.font="900 8px monospace";ctx.textAlign="right";ctx.fillText(phT,SW-4,13);
+  for(let s=0;s<3;s++){
+    const sx=4+s*76,done2=s<gs.sector;
+    ctx.fillStyle=done2?"#1e5e1e":"#1a1a1a";ctx.fillRect(sx,24,72,14);
+    ctx.fillStyle="#555";ctx.font="700 7px monospace";ctx.textAlign="center";ctx.fillText(`S${s+1}`,sx+8,33);
+    ctx.fillStyle="#fff";
+    if(done2&&gs.sectorTimes[s]>0)ctx.fillText(fmtT(gs.sectorTimes[s]),sx+44,33);
+    else{ctx.fillStyle=s===gs.sector&&gs.qualiPhase==="flying"?"#ffdd00":"#333";ctx.fillText("--.-",sx+44,33);}
+  }
+  ctx.fillStyle="rgba(0,0,0,0.82)";ctx.fillRect(SW/2-90,HORIZON-36,180,34);
+  ctx.strokeStyle=gs.bestLap>0?"#aa44ff":"#222";ctx.lineWidth=1;ctx.strokeRect(SW/2-90,HORIZON-36,180,34);
+  ctx.fillStyle="#aa44ff";ctx.font="700 8px monospace";ctx.textAlign="center";ctx.fillText("BEST LAP",SW/2,HORIZON-26);
+  ctx.fillStyle=gs.bestLap>0?"#fff":"#333";ctx.font="900 16px monospace";
+  ctx.fillText(gs.bestLap>0?fmtT(gs.bestLap):"-- NO TIME --",SW/2,HORIZON-10);
+  if(gs.lastLap>0){ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(4,42,90,14);ctx.fillStyle="#888";ctx.font="700 7px monospace";ctx.textAlign="left";ctx.fillText(`LAST ${fmtT(gs.lastLap)}`,8,52);}
+  // Live timing tower
+  ctx.fillStyle="rgba(0,0,0,0.8)";ctx.fillRect(SW-96,42,92,140);
+  ctx.strokeStyle="#222";ctx.lineWidth=1;ctx.strokeRect(SW-96,42,92,140);
+  ctx.fillStyle="#555";ctx.font="700 7px monospace";ctx.textAlign="left";ctx.fillText("TIMINGS",SW-90,52);
+  const allT=[{name:"HAM",col:"#e8002d",time:gs.bestLap,isP:true},...gs.ais.map(a=>({name:a.short,col:a.col,time:a.bestLap,isP:false}))]
+    .sort((a,b)=>{if(!a.time&&!b.time)return 0;if(!a.time)return 1;if(!b.time)return -1;return a.time-b.time;});
+  allT.slice(0,10).forEach((t,i)=>{
+    const ty=62+i*13;
+    ctx.fillStyle=t.isP?"rgba(180,30,0,0.4)":"rgba(0,0,0,0)";ctx.fillRect(SW-96,ty-8,92,12);
+    ctx.fillStyle=t.col;ctx.font=`${t.isP?"900":"700"} 7px monospace`;ctx.textAlign="left";ctx.fillText(`P${i+1} ${t.name}`,SW-90,ty);
+    ctx.fillStyle=t.isP?"#fff":"#888";ctx.textAlign="right";ctx.fillText(t.time>0?fmtT(t.time):"--",SW-4,ty);
+  });
+  if(gs.trackWet>0.08){
+    const wl=gs.wPhase===1?"🌦 RAIN":gs.wPhase===2?"⛈ HEAVY":"☀️ DRYING";
+    ctx.fillStyle="rgba(0,18,55,0.8)";ctx.fillRect(SW/2-54,3,108,14);
+    ctx.fillStyle="rgba(120,185,255,0.9)";ctx.font="700 8px monospace";ctx.textAlign="center";ctx.fillText(wl,SW/2,13);
+  }
+  if(gs.radioTimer>0){
+    const al=Math.min(gs.radioTimer/20,1);
+    ctx.fillStyle=`rgba(0,0,0,${al*0.85})`;ctx.fillRect(10,HORIZON+7,SW-20,22);
+    ctx.strokeStyle=`rgba(0,180,70,${al*0.55})`;ctx.lineWidth=1;ctx.strokeRect(10,HORIZON+7,SW-20,22);
+    ctx.fillStyle=`rgba(0,215,70,${al})`;ctx.font="700 7px monospace";ctx.textAlign="left";ctx.fillText("📻 ENGINEER:",14,HORIZON+17);
+    ctx.fillStyle=`rgba(255,255,255,${al})`;ctx.font="500 7px monospace";ctx.fillText(gs.radioMsg,14,HORIZON+27);
+  }
+}
+
+function drawRaceHUD(ctx,gs){
+  const td=TIRES[gs.tire];
+  ctx.fillStyle="rgba(0,0,0,0.8)";ctx.fillRect(0,0,SW,21);
+  ctx.fillStyle="#444";ctx.font="700 8px monospace";ctx.textAlign="left";ctx.fillText(`LAP ${Math.min(gs.lap,MAX_LAPS)}/${MAX_LAPS}`,6,13);
+  for(let s=0;s<3;s++){
+    const sx=SW*0.28+s*72,done=s<gs.sector;
+    ctx.fillStyle=done?"#1e6e1e":"#333";ctx.fillRect(sx,2,66,15);
+    ctx.fillStyle="#888";ctx.font="700 7px monospace";ctx.textAlign="center";ctx.fillText(`S${s+1}`,sx+8,12);
+    ctx.fillStyle="#fff";
+    if(done&&gs.sectorTimes[s]>0)ctx.fillText(fmtT(gs.sectorTimes[s]),sx+40,12);
+    else{ctx.fillStyle=s===gs.sector?"#ffdd00":"#333";ctx.fillText("--.-",sx+40,12);}
+  }
+  const wR=Math.min(gs.tireWear/td.maxWear,1),wC=wR>0.82?"#ff2200":wR>0.58?"#ff8800":"#22cc44";
+  ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(4,SH-64,86,60);
+  ctx.strokeStyle=td.col;ctx.lineWidth=1;ctx.strokeRect(4,SH-64,86,60);
+  ctx.fillStyle=td.col;ctx.font="900 10px monospace";ctx.textAlign="left";ctx.fillText(td.name,9,SH-51);
+  ctx.fillStyle="#1a1a1a";ctx.fillRect(9,SH-46,70,5);ctx.fillStyle=wC;ctx.fillRect(9,SH-46,70*(1-wR),5);
+  ctx.fillStyle="#555";ctx.font="500 7px monospace";ctx.fillText(`WEAR ${(wR*100)|0}%`,9,SH-37);
+  const tN=Math.min(gs.tireTemp/120,1),tC=gs.tireTemp<60?"#4488ff":gs.tireTemp<80?"#ffaa00":gs.tireTemp<105?"#22cc44":"#ff3300";
+  ctx.fillStyle="#1a1a1a";ctx.fillRect(9,SH-31,70,5);ctx.fillStyle=tC;ctx.fillRect(9,SH-31,70*tN,5);
+  ctx.fillStyle="#555";ctx.font="500 7px monospace";ctx.fillText(`TEMP ${gs.tireTemp|0}°C`,9,SH-21);
+  const eR=gs.ers/ERS_MAX;
+  ctx.fillStyle="rgba(0,0,0,0.75)";ctx.fillRect(SW-94,SH-64,90,60);
+  ctx.strokeStyle=gs.ersD?"#cc44ff":"#220a33";ctx.lineWidth=1;ctx.strokeRect(SW-94,SH-64,90,60);
+  ctx.fillStyle=gs.ersD?"#cc44ff":"#553366";ctx.font="900 9px monospace";ctx.textAlign="left";ctx.fillText("ERS",SW-88,SH-51);
+  ctx.fillStyle="#1a1a1a";ctx.fillRect(SW-88,SH-46,70,5);ctx.fillStyle=gs.ersD?"#cc44ff":"#441166";ctx.fillRect(SW-88,SH-46,70*eR,5);
+  ctx.fillStyle=gs.drsAvail?"#00ff88":"#1a3a1a";ctx.font="900 8px monospace";ctx.fillText(`DRS${gs.drsOpen?" OPEN":gs.drsAvail?" RDY":""}`,SW-88,SH-37);
+  ctx.fillStyle="#555";ctx.font="500 7px monospace";ctx.fillText(`FUEL ${gs.fuel|0}kg`,SW-88,SH-27);ctx.fillText(`DMG ${gs.damage|0}%`,SW-88,SH-17);
+  if(gs.gapAhead!==null){ctx.fillStyle="rgba(0,0,0,0.7)";ctx.fillRect(SW-80,24,76,13);ctx.fillStyle="#88aacc";ctx.font="700 7px monospace";ctx.textAlign="right";ctx.fillText(`▲ +${gs.gapAhead.toFixed(2)}s`,SW-5,34);}
+  if(gs.gapBehind!==null){ctx.fillStyle="rgba(0,0,0,0.7)";ctx.fillRect(SW-80,37,76,13);ctx.fillStyle="#cc8866";ctx.font="700 7px monospace";ctx.textAlign="right";ctx.fillText(`▼ -${gs.gapBehind.toFixed(2)}s`,SW-5,47);}
+  if(gs.lastLap>0){ctx.fillStyle="rgba(0,0,0,0.65)";ctx.fillRect(4,24,72,13);ctx.fillStyle="#aaa";ctx.font="700 7px monospace";ctx.textAlign="left";ctx.fillText(`LAP ${fmtT(gs.lastLap)}`,8,34);}
+  if(gs.bestLap>0){ctx.fillStyle="rgba(0,0,0,0.65)";ctx.fillRect(4,37,72,13);ctx.fillStyle="#cc44ff";ctx.font="700 7px monospace";ctx.textAlign="left";ctx.fillText(`BEST ${fmtT(gs.bestLap)}`,8,47);}
+  if(gs.trackWet>0.08){const wl=gs.wPhase===1?"🌦 LIGHT RAIN":gs.wPhase===2?"⛈ HEAVY RAIN":"☀️ DRYING";ctx.fillStyle="rgba(0,18,55,0.78)";ctx.fillRect(SW/2-70,3,140,14);ctx.fillStyle="rgba(120,185,255,0.95)";ctx.font="700 8px monospace";ctx.textAlign="center";ctx.fillText(wl,SW/2,13);}
+  if(gs.trackWet>0.4&&TIRES[gs.tire].dryG>0.9){ctx.fillStyle="rgba(0,28,95,0.82)";ctx.fillRect(SW/2-108,HORIZON-18,216,14);ctx.fillStyle="#88bbff";ctx.font="900 8px monospace";ctx.textAlign="center";ctx.fillText("🌧 PIT FOR INTERS / WETS!",SW/2,HORIZON-8);}
+  if(gs.radioTimer>0){
+    const al=Math.min(gs.radioTimer/20,1);
+    ctx.fillStyle=`rgba(0,0,0,${al*0.85})`;ctx.fillRect(10,HORIZON+7,SW-20,22);
+    ctx.strokeStyle=`rgba(0,180,70,${al*0.55})`;ctx.lineWidth=1;ctx.strokeRect(10,HORIZON+7,SW-20,22);
+    ctx.fillStyle=`rgba(0,215,70,${al})`;ctx.font="700 7px monospace";ctx.textAlign="left";ctx.fillText("📻 ENGINEER:",14,HORIZON+17);
+    ctx.fillStyle=`rgba(255,255,255,${al})`;ctx.font="500 7px monospace";ctx.fillText(gs.radioMsg,14,HORIZON+27);
+  }
+  // Flag overlay
+  if(gs.flag!==FLAG_NONE){
+    const isY=gs.flag===FLAG_YELLOW,fc2=gs.fc||0;
+    const col2=isY?"#ffdd00":"#ff2200";
+    if(Math.sin(fc2*(isY?0.18:0.28))>0){ctx.fillStyle=isY?"rgba(255,220,0,0.07)":"rgba(255,0,0,0.10)";ctx.fillRect(0,0,SW,SH);}
+    ctx.fillStyle=isY?"rgba(60,50,0,0.92)":"rgba(60,0,0,0.92)";ctx.fillRect(SW/2-115,HORIZON-22,230,18);
+    ctx.strokeStyle=col2;ctx.lineWidth=1.5;ctx.strokeRect(SW/2-115,HORIZON-22,230,18);
+    ctx.fillStyle=Math.sin(fc2*(isY?0.18:0.28))>0?col2:"#fff";ctx.font="900 9px monospace";ctx.textAlign="center";
+    ctx.fillText(isY?"⚠️ YELLOW FLAG — NO OVERTAKING":"🚨 RED FLAG — RACE SUSPENDED",SW/2,HORIZON-10);
+    if(!isY){
+      ctx.fillStyle="rgba(0,0,0,0.88)";ctx.fillRect(SW/2-115,SH/2-55,230,105);
+      ctx.strokeStyle="#ff2200";ctx.lineWidth=2;ctx.strokeRect(SW/2-115,SH/2-55,230,105);
+      ctx.fillStyle="#ff2200";ctx.font="900 16px monospace";ctx.textAlign="center";ctx.fillText("🚨 RED FLAG",SW/2,SH/2-28);
+      ctx.fillStyle="#fff";ctx.font="700 9px monospace";ctx.fillText("RACE SUSPENDED",SW/2,SH/2-10);
+      ctx.fillStyle="#888";ctx.font="500 8px monospace";ctx.fillText("SLOW DOWN — RETURN TO PITS",SW/2,SH/2+8);
+      const rem=Math.max(0,RED_DUR-gs.flagTimer);
+      ctx.fillStyle="#ff8800";ctx.font="900 12px monospace";ctx.fillText(`RESTART IN ${Math.ceil(rem/60)}s`,SW/2,SH/2+30);
+    }
+  }
+}
+
+function drawPit(ctx,timer,nextTire){
+  const p=timer/PIT_DUR;
+  ctx.fillStyle="rgba(0,0,0,0.95)";ctx.fillRect(SW/2-115,SH*0.27,230,105);
+  ctx.strokeStyle="#ff8800";ctx.lineWidth=1.5;ctx.strokeRect(SW/2-115,SH*0.27,230,105);
+  ctx.fillStyle="#ff8800";ctx.font="900 13px monospace";ctx.textAlign="center";ctx.fillText("🔧 PIT STOP",SW/2,SH*0.27+23);
+  ctx.fillStyle="#1a1a1a";ctx.fillRect(SW/2-88,SH*0.27+30,176,11);
+  ctx.fillStyle="#ff8800";ctx.fillRect(SW/2-88,SH*0.27+30,176*p,11);
+  ctx.fillStyle="#fff";ctx.font="900 14px monospace";ctx.fillText(`${(3*(1-p)).toFixed(1)}s`,SW/2,SH*0.27+58);
+  ctx.fillStyle="#666";ctx.font="500 8px monospace";ctx.fillText("NEW TIRES BEING FITTED",SW/2,SH*0.27+73);
+  ctx.fillStyle=TIRES[nextTire].col;ctx.font="700 10px monospace";ctx.fillText(`→ ${TIRES[nextTire].name}`,SW/2,SH*0.27+89);
+}
+
+function drawLights(ctx,count){
+  ctx.fillStyle="rgba(0,0,0,0.92)";ctx.fillRect(SW/2-96,SH*0.3,192,70);
+  ctx.font="700 8px monospace";ctx.fillStyle="#555";ctx.textAlign="center";ctx.fillText("LIGHTS OUT AND AWAY WE GO",SW/2,SH*0.3+15);
+  for(let i=1;i<=5;i++){
+    ctx.beginPath();ctx.arc(SW/2-56+(i-1)*28,SH*0.3+42,12,0,Math.PI*2);
+    if(i<=count){ctx.shadowColor="#e8002d";ctx.shadowBlur=16;}
+    ctx.fillStyle=i<=count?"#e8002d":"#1a1a1a";ctx.fill();ctx.shadowBlur=0;
+    ctx.strokeStyle="#2a2a2a";ctx.lineWidth=1.5;ctx.stroke();
+  }
+}
+
+// ── HELPER COMPONENTS ───────────────────────────────────────────────────
+function StandingsTabs({drivers,teams,tab,setTab}){
+  const topD=drivers[0]?.pts||1,topT=teams[0]?.pts||1;
+  return (
+    <div style={{width:300,marginBottom:12}}>
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        {[["drivers","👤 DRIVERS"],["teams","🏎️ TEAMS"]].map(([k,lbl])=>(
+          <div key={k} onClick={()=>setTab(k)} style={{flex:1,textAlign:"center",padding:"5px",borderRadius:7,border:`1px solid ${tab===k?"#ffdd00":"#222"}`,background:tab===k?"#1a1500":"#0a0a0a",cursor:"pointer",fontSize:9,fontWeight:900,color:tab===k?"#ffdd00":"#444",fontFamily:"'Courier New',monospace"}}>
+            {lbl}
+          </div>
+        ))}
+      </div>
+      <div style={{maxHeight:"22vh",overflowY:"auto"}}>
+        {tab==="drivers"&&drivers.slice(0,10).map((d,i)=>(
+          <div key={d.name} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",marginBottom:3,background:d.isPlayer?"#110800":"#060606",border:`1px solid ${d.isPlayer?"#ffdd0044":"#0d0d0d"}`,borderLeft:`4px solid ${d.col}`,borderRadius:6}}>
+            <span style={{fontSize:9,width:20,color:i<3?"#ffdd00":"#444",fontWeight:900}}>P{i+1}</span>
+            <span style={{flex:1,fontWeight:d.isPlayer?900:700,fontSize:11,color:d.isPlayer?"#ffdd00":"#bbb"}}>{d.name}</span>
+            <div style={{width:40,height:4,background:"#111",borderRadius:2,marginRight:4}}>
+              <div style={{height:4,width:`${d.pts/topD*100}%`,background:d.col,borderRadius:2}}/>
+            </div>
+            <span style={{fontSize:11,fontWeight:900,color:d.isPlayer?"#ffdd00":"#777",minWidth:28,textAlign:"right"}}>{d.pts}</span>
+          </div>
+        ))}
+        {tab==="teams"&&teams.map((t,i)=>(
+          <div key={t.team} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",marginBottom:3,background:t.hasPlayer?"#110800":"#060606",border:`1px solid ${t.hasPlayer?"#ffdd0044":"#0d0d0d"}`,borderLeft:`4px solid ${t.col}`,borderRadius:6}}>
+            <span style={{fontSize:9,width:20,color:i<3?"#ffdd00":"#444",fontWeight:900}}>P{i+1}</span>
+            <span style={{flex:1,fontWeight:t.hasPlayer?900:700,fontSize:11,color:t.hasPlayer?"#ffdd00":"#bbb"}}>{t.team}</span>
+            <div style={{width:40,height:4,background:"#111",borderRadius:2,marginRight:4}}>
+              <div style={{height:4,width:`${t.pts/topT*100}%`,background:t.col,borderRadius:2}}/>
+            </div>
+            <span style={{fontSize:11,fontWeight:900,color:t.hasPlayer?"#ffdd00":"#777",minWidth:28,textAlign:"right"}}>{t.pts}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN COMPONENT ──────────────────────────────────────────────────────
+function F1Sim(){
+  const [screen,setScreen]=useState("menu");
+  const [startTire,setStartTire]=useState("soft");
+  const [weather,setWeather]=useState("dry");
+  const [hud,setHud]=useState({speed:0,lap:1,pos:1,tire:"soft",wear:0,wet:0,ersD:false,drsO:false,drsA:false,pitReq:false,pitPhase:"none",qualiPhase:"outlap",bestLap:0,flag:"none"});
+  const [pitMenu,setPitMenu]=useState(false);
+  const [results,setResults]=useState([]);
+  const [qualiResults,setQualiResults]=useState(null);
+  const [qualiSession,setQualiSession]=useState(1);
+  const [qualiActiveAIs,setQualiActiveAIs]=useState(null);
+  const [qualiGridBottom,setQualiGridBottom]=useState([]);
+  const [qualiKnockoutData,setQualiKnockoutData]=useState(null);
+  const [seasonMode,setSeasonMode]=useState(false);
+  const [seasonRound,setSeasonRound]=useState(0);
+  const [seasonStandings,setSeasonStandings]=useState(null);
+  const [standingsTab,setStandingsTab]=useState("drivers");
+  const [scale,setScale]=useState(1);
+
+  const cvRef=useRef(null);
+  const keysRef=useRef({});
+  const btnRef=useRef({left:false,right:false,gas:false,brake:false,ers:false,drs:false});
+  const gsRef=useRef(null);
+  const rafRef=useRef(null);
+  const finRef=useRef([]);
+  const fCntRef=useRef(0);
+
+  // Scale to fill screen
+  useEffect(()=>{
+    const upd=()=>setScale(Math.min(window.innerWidth/SW,window.innerHeight/SH));
+    upd();
+    window.addEventListener("resize",upd);
+    return()=>window.removeEventListener("resize",upd);
+  },[]);
+
+  useEffect(()=>{
+    const dn=e=>keysRef.current[e.key]=true;
+    const up=e=>keysRef.current[e.key]=false;
+    window.addEventListener("keydown",dn);window.addEventListener("keyup",up);
+    return()=>{window.removeEventListener("keydown",dn);window.removeEventListener("keyup",up);};
+  },[]);
+
+  const radio=(gs,m)=>{gs.radioMsg=m;gs.radioTimer=220;};
+  const confirmPit=tire=>{
+    if(!gsRef.current)return;
+    const gs=gsRef.current;
+    if(gs.pitPhase!=="none"||gs.lap<2)return;
+    gs.pitReq=true;gs.nextTire=tire;setPitMenu(false);radio(gs,"Box box box!");
+  };
+
+  const initStandings=()=>[
+    {name:"HAMILTON", short:"HAM",col:"#e8002d",team:"Ferrari",     pts:0,isPlayer:true},
+    {name:"NORRIS",   short:"NOR",col:"#FF8000",team:"McLaren",      pts:0},
+    {name:"VERSTAPPEN",short:"VER",col:"#3671C6",team:"Red Bull",    pts:0},
+    {name:"RUSSELL",  short:"RUS",col:"#00D2BE",team:"Mercedes",     pts:0},
+    {name:"ALONSO",   short:"ALO",col:"#358C75",team:"Aston Martin", pts:0},
+    {name:"LECLERC",  short:"LEC",col:"#cc0022",team:"Ferrari",      pts:0},
+    {name:"PIASTRI",  short:"PIA",col:"#FF6600",team:"McLaren",      pts:0},
+    {name:"ANTONELLI",short:"ANT",col:"#00B8A8",team:"Mercedes",     pts:0},
+    {name:"HADJAR",   short:"HAD",col:"#2255AA",team:"Red Bull",     pts:0},
+    {name:"BEARMAN",  short:"BEA",col:"#B6BABD",team:"Haas",         pts:0},
+    {name:"GASLY",    short:"GAS",col:"#FF87BC",team:"Alpine",       pts:0},
+    {name:"COLAPINTO",short:"COL",col:"#FF60A0",team:"Alpine",       pts:0},
+    {name:"ALBON",    short:"ALB",col:"#64C4FF",team:"Williams",     pts:0},
+    {name:"SAINZ",    short:"SAI",col:"#4488CC",team:"Williams",     pts:0},
+    {name:"HULKENBERG",short:"HUL",col:"#BB0000",team:"Audi",        pts:0},
+    {name:"BORTOLETO",short:"BOR",col:"#990000",team:"Audi",         pts:0},
+    {name:"OCON",     short:"OCO",col:"#888888",team:"Haas",         pts:0},
+    {name:"STROLL",   short:"STR",col:"#226655",team:"Aston Martin", pts:0},
+    {name:"PEREZ",    short:"PER",col:"#1B3A6B",team:"Cadillac",     pts:0},
+    {name:"BOTTAS",   short:"BOT",col:"#152E55",team:"Cadillac",     pts:0},
+  ];
+
+  const addPoints=(standings,raceRes)=>{
+    const u=standings.map(d=>({...d}));
+    raceRes.forEach((r,i)=>{const pts=POINTS_TABLE[i]||0;const f=u.find(d=>d.name===r.name);if(f)f.pts+=pts;});
+    return u.sort((a,b)=>b.pts-a.pts);
+  };
+
+  const getTeamStandings=(ds)=>{
+    const TCOLS={"Ferrari":"#e8002d","McLaren":"#FF8000","Red Bull":"#3671C6","Mercedes":"#00D2BE","Aston Martin":"#358C75","Alpine":"#FF87BC","Williams":"#64C4FF","Audi":"#BB0000","Haas":"#B6BABD","Cadillac":"#1B3A6B"};
+    const t={};
+    ds.forEach(d=>{
+      if(!t[d.team])t[d.team]={team:d.team,pts:0,col:TCOLS[d.team]||"#888",hasPlayer:false};
+      t[d.team].pts+=d.pts;if(d.isPlayer)t[d.team].hasPlayer=true;
+    });
+    return Object.values(t).sort((a,b)=>b.pts-a.pts);
+  };
+
+  const SESSION_ELIM={1:5,2:5,3:0};
+
+  const finishQualiSession=(session,pBest,aiTimes)=>{
+    const all=[{name:"HAMILTON",short:"HAM",col:"#e8002d",team:"Ferrari",isPlayer:true,time:pBest||99999,qualiTime:pBest||99999,base:1.015,tire:startTire},...aiTimes].sort((a,b)=>a.time-b.time);
+    const elim=SESSION_ELIM[session]||0;
+    const surviving=all.slice(0,all.length-elim);
+    const knocked=all.slice(all.length-elim);
+    const playerKnocked=knocked.some(d=>d.isPlayer);
+    const startPos=session===1?16:11;
+    const newBottom=[...qualiGridBottom,...knocked.map((d,i)=>({...d,gridPos:startPos+i}))];
+    if(session===3||playerKnocked){
+      const fullGrid=[...surviving,...newBottom].sort((a,b)=>(a.time||99999)-(b.time||99999));
+      setQualiKnockoutData({session,allTimes:all,knocked,surviving,playerKnocked,isFinal:true,fullGrid});
+      setQualiGridBottom(newBottom);
+    } else {
+      setQualiGridBottom(newBottom);
+      setQualiKnockoutData({session,allTimes:all,knocked,surviving,playerKnocked,isFinal:false});
+      setQualiActiveAIs(surviving.filter(d=>!d.isPlayer).map(d=>d.name));
+    }
+    setScreen("qualiKnockout");
+  };
+
+  const launchQuali=(session,activeAIs,w)=>{
+    if(rafRef.current)cancelAnimationFrame(rafRef.current);
+    gsRef.current=mkQuali(startTire,w||weather,session,activeAIs);
+    setScreen("quali");
+    setTimeout(()=>{
+      if(!gsRef.current)return;
+      gsRef.current.raceOn=true;gsRef.current.lapStart=gsRef.current.fc;
+      const lbls={1:"Q1 — GET INTO TOP 15!",2:"Q2 — GET INTO TOP 10!",3:"Q3 — FIGHT FOR POLE!"};
+      radio(gsRef.current,lbls[session]||"Qualify!");
+    },800);
+  };
+
+  const startQuali=()=>{
+    setQualiSession(1);setQualiActiveAIs(null);setQualiGridBottom([]);setQualiKnockoutData(null);
+    launchQuali(1,null,weather);
+  };
+
+  const startSeasonQuali=()=>{
+    if(!seasonStandings)setSeasonStandings(initStandings());
+    setQualiSession(1);setQualiActiveAIs(null);setQualiGridBottom([]);setQualiKnockoutData(null);
+    launchQuali(1,null,"dry");
+  };
+
+  const startRace=(grid)=>{
+    if(rafRef.current)cancelAnimationFrame(rafRef.current);
+    gsRef.current=mkRace(startTire,seasonMode?"dry":weather,grid);
+    finRef.current=[];fCntRef.current=0;
+    setResults([]);setPitMenu(false);setScreen("race");
+    let l=0;
+    const tick=()=>{if(!gsRef.current)return;l++;gsRef.current.lights=l;if(l<5)setTimeout(tick,700);else setTimeout(()=>{if(gsRef.current){gsRef.current.lights=6;gsRef.current.raceOn=true;gsRef.current.lapStart=gsRef.current.fc;}},700+Math.random()*1400);};
+    setTimeout(tick,800);
+  };
+
+  // ── QUALIFYING LOOP ────────────────────────────────────────────────────
+  useEffect(()=>{
+    if(screen!=="quali")return;
+    const canvas=cvRef.current;if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    let alive=true;
+
+    const loop=()=>{
+      if(!alive)return;
+      const gs=gsRef.current;
+      const k=keysRef.current,b=btnRef.current;
+      gs.fc++;
+
+      if(gs.fc%4===0)tickWeather(gs);
+
+      if(gs.raceOn&&gs.qualiPhase!=="done"){
+        const td=TIRES[gs.tire];
+        const wR=Math.min(gs.tireWear/td.maxWear,1),tG=Math.min(gs.tireTemp/td.optT,1);
+        const isWet=gs.trackWet>0.22,wetP=isWet&&td.dryG>0.9?1-gs.trackWet*0.48:1;
+        const effMax=BASE_MAX*(isWet?td.wetG:td.dryG)*tG*(1-wR*0.3)*wetP;
+
+        if(gs.pitPhase==="stopped"){
+          // Stopped in pits — wait for tire change
+          gs.pitTimer++;
+          gs.x+=(1.35-gs.x)*0.15;
+          if(gs.pitTimer>=PIT_DUR){
+            gs.tire=gs.nextTire; gs.tireWear=0; gs.tireTemp=40;
+            gs.pitPhase="none"; gs.pitReq=false; gs.speed=0.08; gs.x=0;
+            // Reset to outlap after pit
+            gs.qualiPhase="outlap";
+            radio(gs,"New tires on! Get out there and set a lap!");
+          }
+        } else {
+        const gas=k["ArrowUp"]||b.gas,brake=k["ArrowDown"]||b.brake;
+        const left=k["ArrowLeft"]||b.left,right=k["ArrowRight"]||b.right;
+        const ersKey=k[" "]||k["e"]||k["E"]||b.ers;
+        const drsKey=k["d"]||k["D"]||b.drs;
+        gs.ersD=ersKey&&gs.ers>0;
+        if(gs.ersD)gs.ers=Math.max(0,gs.ers-ERS_DEPLOY);
+        else if(brake&&gs.speed>0.3)gs.ers=Math.min(ERS_MAX,gs.ers+ERS_HARVEST);
+        const top=effMax+(gs.ersD?0.08:0)+(gs.drsOpen?DRS_GAIN:0);
+        if(gas)gs.speed=Math.min(gs.speed+0.011,top);
+        else gs.speed=Math.max(gs.speed-0.006,0);
+        if(brake)gs.speed=Math.max(gs.speed-0.028,0);
+        if(Math.abs(gs.x)>0.88)gs.speed*=0.92;
+        const grip=0.12*Math.max(0.35,1-gs.speed/BASE_MAX*0.35);
+        if(left){gs.x=Math.max(gs.x-grip,-0.95);gs.steer=Math.max(gs.steer-2.2,-28);}
+        if(right){gs.x=Math.min(gs.x+grip,0.95);gs.steer=Math.min(gs.steer+2.2,28);}
+        if(!left&&!right)gs.steer*=0.72;
+        gs.z+=gs.speed;gs.cam+=SEGS[Math.floor(gs.z)%NSEGS].curve*gs.speed*CF*0.6;gs.cam*=0.962;
+        gs.tireWear+=gs.speed*0.86*(1+Math.abs(gs.steer)*0.014);
+        gs.tireTemp=Math.max(30,Math.min(130,gs.tireTemp+(gas?TIRES[gs.tire].hR*gs.speed*0.9:0)-(gs.tireTemp>35?0.04:0)));
+        const curSeg=Math.floor(gs.z)%NSEGS;
+        gs.drsAvail=SEGS[curSeg].drs;
+        if(drsKey&&gs.drsAvail)gs.drsOpen=true;
+        if(!SEGS[curSeg].drs)gs.drsOpen=false;
+
+        // Pit entry during qualifying
+        if(gs.pitReq&&gs.pitPhase==="none"){
+          if(curSeg>NSEGS-30||curSeg<22){gs.pitPhase="stopped";gs.pitTimer=0;}
+        }
+
+        if(gs.fc%3===0&&gs.qualiPhase==="flying"){
+          for(let sg=0;sg<3;sg++){
+            const gate=S_GATES[sg],next=S_GATES[(sg+1)%3];
+            if(gs.sector===sg&&curSeg>gate+30&&Math.abs(curSeg-next)<5){gs.sectorTimes[sg]=gs.fc-gs.sectorStart;gs.sectorStart=gs.fc;gs.sector=(sg+1)%3;}
+          }
+        }
+        if(gs.z>=gs.lap*NSEGS){
+          const lt=gs.fc-gs.lapStart;
+          if(gs.qualiPhase==="flying"){
+            gs.lastLap=lt;
+            if(gs.bestLap===0||lt<gs.bestLap){gs.bestLap=lt;radio(gs,lt<1400?"PURPLE LAP! Mega!":"Good lap!");}
+            else radio(gs,"Lap done. Push harder!");
+            gs.lapsDone++;gs.sectorTimes=[0,0,0];gs.sector=0;
+          }
+          gs.lapStart=gs.fc;gs.lap++;
+          if(gs.lapsDone>=QUALI_LAPS){gs.qualiPhase="done";radio(gs,"Chequered flag! Session over.");}
+          else{
+            gs.qualiPhase=gs.qualiPhase==="outlap"?"flying":gs.qualiPhase==="flying"?"cooldown":"flying";
+            if(gs.qualiPhase==="flying")radio(gs,"Push now! Flying lap!");
+            if(gs.qualiPhase==="cooldown")radio(gs,"Good lap. Cool down lap.");
+          }
+          gs.sectorStart=gs.fc;
+        }
+        } // end else (not stopped)
+      }
+
+      // AI qualifying
+      if(gs.raceOn){
+        for(const ai of gs.ais){
+          if(!ai.qLap)ai.qLap=1;if(!ai.qLapStart)ai.qLapStart=gs.fc+(ai.qLapStart||0);if(!ai.qPhase)ai.qPhase="outlap";
+          const targetSpd=ai.qPhase==="flying"?ai.base*(0.992+Math.random()*0.015):ai.base*0.72;
+          ai.speed=ai.speed*0.92+targetSpd*0.08;
+          ai.z+=ai.speed;
+          if(gs.fc%12===0){ai.tx=(Math.random()-0.5)*0.4;}
+          ai.x+=(ai.tx-ai.x)*0.04;
+          if(ai.z>=ai.qLap*NSEGS){
+            const lt=gs.fc-ai.qLapStart;
+            if(ai.qPhase==="flying"){
+              const boost=ai._qBoost||0;
+              const est=ai.qualiBase+boost+(Math.random()-0.5)*12;
+              const finalT=lt>1000&&lt<2500?lt:est;
+              if(ai.bestLap===0||finalT<ai.bestLap)ai.bestLap=finalT;
+              ai.qLapsDone=(ai.qLapsDone||0)+1;
+            }
+            ai.qLapStart=gs.fc;ai.qLap++;
+            ai.qPhase=ai.qPhase==="outlap"?"flying":ai.qPhase==="flying"?"cooldown":"flying";
+          }
+        }
+      }
+
+      if(gs.radioTimer>0)gs.radioTimer--;
+      if(gs.fc%4===0)setHud(h=>({...h,speed:(gs.speed/BASE_MAX*KMH)|0,qualiPhase:gs.qualiPhase,bestLap:gs.bestLap,tire:gs.tire,ersD:gs.ersD,drsO:gs.drsOpen,drsA:gs.drsAvail,pitPhase:gs.pitPhase,pitReq:gs.pitReq}));
+
+      if(gs.pitPhase==="stopped"){
+        ctx.fillStyle="#111";ctx.fillRect(0,0,SW,SH);
+        drawPit(ctx,gs.pitTimer,gs.nextTire||"soft");
+      } else {
+        buildCurveTable(gs.z,gs.cam);
+        ctx.clearRect(0,0,SW,SH);
+        drawRoad(ctx,gs.z,gs.x,gs.cam,gs.trackWet);
+        drawAIs(ctx,gs.z,gs.x,gs.cam,gs.trackWet,gs.ais);
+        drawRain(ctx,gs.drops,gs.rainInt);
+        if(gs.splashes.length){ctx.strokeStyle="rgba(120,165,255,0.5)";ctx.lineWidth=0.7;for(const s of gs.splashes){ctx.globalAlpha=s.life/16*0.55;ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.stroke();}ctx.globalAlpha=1;}
+        drawCockpit(ctx,gs.steer,gs.speed,gs.trackWet,gs.drsOpen,gs.ersD);
+        drawQualiHUD(ctx,gs);
+        if(gs.pitReq&&gs.pitPhase==="none"){
+          ctx.fillStyle="rgba(0,0,0,0.82)";ctx.fillRect(SW/2-106,HORIZON+9,212,34);
+          ctx.fillStyle="#ff8800";ctx.font="900 11px monospace";ctx.textAlign="center";ctx.fillText("🔧 PITTING NEXT LAP",SW/2,HORIZON+23);
+          ctx.fillStyle=TIRES[gs.nextTire||"soft"].col;ctx.font="700 8px monospace";ctx.fillText(`→ ${TIRES[gs.nextTire||"soft"].name}`,SW/2,HORIZON+34);
+        }
+      }
+
+      if(gs.qualiPhase==="done"&&alive){
+        const sl={1:"Q1",2:"Q2",3:"Q3"}[gs._session||1]||"Q";
+        ctx.fillStyle="rgba(0,0,0,0.88)";ctx.fillRect(SW/2-120,SH/2-50,240,110);
+        ctx.strokeStyle="#ffdd00";ctx.lineWidth=2;ctx.strokeRect(SW/2-120,SH/2-50,240,110);
+        ctx.fillStyle="#ffdd00";ctx.font="900 14px monospace";ctx.textAlign="center";ctx.fillText(`${sl} COMPLETE`,SW/2,SH/2-28);
+        ctx.fillStyle="#fff";ctx.font="900 20px monospace";ctx.fillText(fmtT(gs.bestLap),SW/2,SH/2+2);
+        ctx.fillStyle="#888";ctx.font="700 9px monospace";ctx.fillText(gs.bestLap>0?"TAP TO SEE RESULTS":"NO TIME — ELIMINATED",SW/2,SH/2+24);
+        if(!gs._gridBuilt){
+          gs._gridBuilt=true;
+          const sessionBoost=gs._session===1?0:gs._session===2?-40:-80;
+          const aiTimes=gs.ais.map(a=>({name:a.name,short:a.short,col:a.col,team:a.team,isPlayer:false,
+            time:a.bestLap>0?a.bestLap:a.qualiBase+sessionBoost+(Math.random()-0.5)*12,
+            qualiTime:a.bestLap>0?a.bestLap:a.qualiBase+sessionBoost+(Math.random()-0.5)*12,
+            startZ:a.startZ,base:a.base,tire:a.tire,
+          }));
+          setTimeout(()=>{if(!alive)return;finishQualiSession(gs._session||1,gs.bestLap,aiTimes);},600);
+        }
+      }
+
+      rafRef.current=requestAnimationFrame(loop);
+    };
+    rafRef.current=requestAnimationFrame(loop);
+    return()=>{alive=false;cancelAnimationFrame(rafRef.current);};
+  },[screen]);
+
+  // ── RACE LOOP ──────────────────────────────────────────────────────────
+  useEffect(()=>{
+    if(screen!=="race")return;
+    const canvas=cvRef.current;if(!canvas)return;
+    const ctx=canvas.getContext("2d");
+    let alive=true;
+
+    const loop=()=>{
+      if(!alive)return;
+      const gs=gsRef.current;
+      const k=keysRef.current,b=btnRef.current;
+      gs.fc++;
+
+      if(gs.raceOn&&gs.weather!=="dry"&&gs.fc%4===0){
+        tickWeather(gs);
+        for(const ai of gs.ais)if(!ai.hasPitted&&!ai.finished&&ai.pitPhase==="none"&&gs.trackWet>0.52&&!["inter","wet"].includes(ai.tire)&&Math.random()<0.003){ai.pitPhase="stopped";ai.pitTimer=0;}
+      }
+
+      if(gs.raceOn&&!gs.finished){
+        // Flag tick
+        if(gs.flag!==FLAG_NONE){
+          gs.flagTimer++;
+          if(gs.flag===FLAG_YELLOW&&gs.flagTimer>YELLOW_DUR){gs.flag=FLAG_NONE;gs.flagTimer=0;radio(gs,"Green flag! Go go go!");}
+          if(gs.flag===FLAG_RED&&gs.flagTimer>RED_DUR){gs.flag=FLAG_NONE;gs.flagTimer=0;radio(gs,"Red flag cleared! Race resumes!");}
+        }
+        // Random incidents
+        if(gs.flag===FLAG_NONE&&gs.lap>1&&gs.fc%6===0&&Math.random()<0.00420){
+          const isRed=Math.random()<0.60;
+          gs.flag=isRed?FLAG_RED:FLAG_YELLOW;gs.flagTimer=0;
+          const v=["NORRIS","VERSTAPPEN","ALONSO","SAINZ","PEREZ","STROLL","OCON","BOTTAS"];
+          const who=v[Math.floor(Math.random()*v.length)];
+          radio(gs,isRed?`RED FLAG! ${who} has crashed!`:`Yellow! ${who} has gone off.`);
+        }
+
+        const td=TIRES[gs.tire];
+        const wR=Math.min(gs.tireWear/td.maxWear,1);
+        const tG=Math.min(gs.tireTemp/td.optT,1)*(gs.tireTemp/td.optT>1?1/(1+(gs.tireTemp/td.optT-1)*1.4):1);
+        const isWet=gs.trackWet>0.22;
+        const wetP=isWet&&td.dryG>0.9?1-gs.trackWet*0.48:1;
+        const fM=1-(gs.fuel/FUEL_START)*0.010,dM=1-gs.damage*0.003;
+        const effMax=BASE_MAX*(isWet?td.wetG:td.dryG)*tG*(1-wR*0.15)*wetP*fM*dM;
+
+        if(gs.pitPhase==="stopped"){
+          gs.pitTimer++;
+          // Visually park in pit lane (shift x right)
+          gs.x += (1.35 - gs.x) * 0.15;
+          if(gs.pitTimer>=PIT_DUR){gs.tire=gs.nextTire;gs.tireWear=0;gs.tireTemp=40;gs.pitPhase="none";gs.pitReq=false;gs.pitCount++;gs.speed=0.08;gs.x=0.0;radio(gs,"Brilliant stop! Go go go!");}
+        } else {
+          const gas=k["ArrowUp"]||b.gas,brake=k["ArrowDown"]||b.brake;
+          const left=k["ArrowLeft"]||b.left,right=k["ArrowRight"]||b.right;
+          const ersKey=k[" "]||k["e"]||k["E"]||b.ers;
+          const drsKey=k["d"]||k["D"]||b.drs;
+          gs.ersD=ersKey&&gs.ers>0;
+          if(gs.ersD)gs.ers=Math.max(0,gs.ers-ERS_DEPLOY);
+          else if(brake&&gs.speed>0.3)gs.ers=Math.min(ERS_MAX,gs.ers+ERS_HARVEST);
+          const top=effMax+(gs.ersD?0.08:0)+(gs.drsOpen?DRS_GAIN:0);
+          if(gas)gs.speed=Math.min(gs.speed+0.021,top);
+          else gs.speed=Math.max(gs.speed-0.006,0);
+          if(brake)gs.speed=Math.max(gs.speed-0.028,0);
+          if(Math.abs(gs.x)>0.88){gs.speed*=0.95;gs.damage=Math.min(100,gs.damage+0.02);}
+          if(gs.flag===FLAG_YELLOW)gs.speed=Math.min(gs.speed,0.38);
+          if(gs.flag===FLAG_RED)gs.speed=Math.min(gs.speed,0.18);
+          const wetSlip=isWet&&td.dryG>0.9?gs.trackWet*0.013:0;
+          const grip=0.12*Math.max(0.35,1-gs.speed/BASE_MAX*0.35)-wetSlip;
+          if(left){gs.x=Math.max(gs.x-grip,-0.95);gs.steer=Math.max(gs.steer-2.2,-28);}
+          if(right){gs.x=Math.min(gs.x+grip,0.95);gs.steer=Math.min(gs.steer+2.2,28);}
+          if(!left&&!right)gs.steer*=0.72;
+          gs.z+=gs.speed;gs.cam+=SEGS[Math.floor(gs.z)%NSEGS].curve*gs.speed*CF*0.6;gs.cam*=0.962;
+          gs.fuel=Math.max(0,gs.fuel-FUEL_RATE*gs.speed*60);
+          gs.tireWear+=gs.speed*(isWet?0.36:0.55)*(1+Math.abs(gs.steer)*0.014);
+          gs.tireTemp=Math.max(30,Math.min(130,gs.tireTemp+(gas?td.hR*gs.speed*0.9:0)-(gs.tireTemp>35?0.04:0)));
+          const curSeg=Math.floor(gs.z)%NSEGS;
+          const bestAI=gs.ais.filter(a=>!a.finished&&a.z>gs.z).sort((a,b)=>a.z-b.z)[0];
+          gs.drsAvail=SEGS[curSeg].drs&&bestAI&&(bestAI.z-gs.z)*0.08<1.0;
+          if(drsKey&&gs.drsAvail)gs.drsOpen=true;
+          if(!SEGS[curSeg].drs||!gs.drsAvail)gs.drsOpen=false;
+          if(gs.fc%6===0){
+            const all2=[{z:gs.z+(gs.lap-1)*NSEGS,p:true},...gs.ais.map(a=>({z:a.z+(a.lap-1)*NSEGS,p:false}))];
+            all2.sort((a,b)=>b.z-a.z);const pi=all2.findIndex(c=>c.p);
+            gs.gapAhead=pi>0?+((all2[pi-1].z-all2[pi].z)*0.085).toFixed(2):null;
+            gs.gapBehind=pi<all2.length-1?+((all2[pi].z-all2[pi+1].z)*0.085).toFixed(2):null;
+          }
+          if(gs.pitReq&&gs.pitPhase==="none"){
+            const s=curSeg;
+            if(s>NSEGS-30||s<22){gs.pitPhase="stopped";gs.pitTimer=0;}
+          }
+          if(gs.fc%3===0){for(let sg=0;sg<3;sg++){const gate=S_GATES[sg],next=S_GATES[(sg+1)%3];if(gs.sector===sg&&curSeg>gate+30&&Math.abs(curSeg-next)<5){gs.sectorTimes[sg]=gs.fc-gs.sectorStart;gs.sectorStart=gs.fc;gs.sector=(sg+1)%3;}}}
+          if(gs.z>=gs.lap*NSEGS){
+            const lt=gs.fc-gs.lapStart;gs.lastLap=lt;if(gs.bestLap===0||lt<gs.bestLap)gs.bestLap=lt;
+            gs.lapStart=gs.fc;gs.sector=0;gs.sectorTimes=[0,0,0];gs.sectorStart=gs.fc;gs.ers=Math.min(ERS_MAX,gs.ers+700);
+            if(gs.lap>=MAX_LAPS){
+              gs.finished=true;fCntRef.current++;finRef.current.push({name:"HAMILTON",team:"Ferrari",col:"#e8002d",isPlayer:true,pits:gs.pitCount,best:fmtT(gs.bestLap)});
+            } else {gs.lap++;radio(gs,RADIO_MSGS[Math.floor(Math.random()*RADIO_MSGS.length)]);}
+          }
+        }
+      }
+
+      // AI race
+      if(gs.raceOn){
+        for(const ai of gs.ais){
+          if(ai.finished)continue;
+          if(ai.pitPhase==="stopped"){ai.pitTimer++;if(ai.pitTimer>=PIT_DUR+Math.random()*40){ai.tire=gs.trackWet>0.5?"inter":"hard";ai.tireWear=0;ai.tireTemp=42;ai.pitPhase="none";ai.hasPitted=true;}continue;}
+          const atd=TIRES[ai.tire];const wp=Math.min(ai.tireWear/atd.maxWear,0.94);
+          const isWet=gs.trackWet>0.22,wetP=isWet&&atd.dryG>0.9?1-gs.trackWet*0.45:1;
+          let spd=ai.base*(isWet?atd.wetG:atd.dryG)*(1-wp*0.22)*wetP*(0.992+Math.random()*0.015);
+          if(gs.flag===FLAG_YELLOW)spd=Math.min(spd,0.36);
+          if(gs.flag===FLAG_RED)spd=Math.min(spd,0.16);
+          ai.z+=spd;ai.tireWear+=spd*0.70;ai.tireTemp=Math.min(120,ai.tireTemp+spd*0.4);
+          if(gs.fc%8===0){if(Math.random()<0.05)ai.tx=(Math.random()-0.5)*0.5;ai.x+=(ai.tx-ai.x)*0.12;}
+          if(!ai.hasPitted&&ai.lap>=2&&ai.tireWear/atd.maxWear>0.65&&Math.random()<0.003){ai.pitPhase="stopped";ai.pitTimer=0;}
+          if(ai.z>=ai.lap*NSEGS){if(ai.lap>=MAX_LAPS){ai.finished=true;fCntRef.current++;finRef.current.push({name:ai.name,team:ai.team,col:ai.col,isPlayer:false,pits:ai.hasPitted?1:0,best:"--"});}else ai.lap++;}
+        }
+      }
+
+      if(gs.radioTimer>0)gs.radioTimer--;
+      if(gs.fc%4===0){
+        const all3=[{z:(gs.lap-1)*NSEGS+gs.z%NSEGS,p:true},...gs.ais.map(a=>({z:(a.lap-1)*NSEGS+a.z%NSEGS,p:false}))];
+        all3.sort((a,b)=>b.z-a.z);
+        setHud(h=>({...h,speed:(gs.speed/BASE_MAX*KMH)|0,lap:Math.min(gs.lap,MAX_LAPS),pos:all3.findIndex(d=>d.p)+1,
+          tire:gs.tire,wear:Math.min((gs.tireWear/TIRES[gs.tire].maxWear*100)|0,100),
+          wet:(gs.trackWet*100)|0,ersD:gs.ersD,drsO:gs.drsOpen,drsA:gs.drsAvail,
+          pitReq:gs.pitReq,pitPhase:gs.pitPhase,dmg:gs.damage|0,flag:gs.flag}));
+      }
+
+      if(gs.pitPhase==="stopped"){
+        ctx.fillStyle="#111";ctx.fillRect(0,0,SW,SH);
+        drawPit(ctx,gs.pitTimer,gs.nextTire);
+      } else {
+        buildCurveTable(gs.z,gs.cam);
+        ctx.clearRect(0,0,SW,SH);
+        drawRoad(ctx,gs.z,gs.x,gs.cam,gs.trackWet);
+        drawAIs(ctx,gs.z,gs.x,gs.cam,gs.trackWet,gs.ais);
+        drawRain(ctx,gs.drops,gs.rainInt);
+        if(gs.splashes.length){ctx.strokeStyle="rgba(120,165,255,0.5)";ctx.lineWidth=0.7;for(const s of gs.splashes){ctx.globalAlpha=s.life/16*0.55;ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.stroke();}ctx.globalAlpha=1;}
+        drawCockpit(ctx,gs.steer,gs.speed,gs.trackWet,gs.drsOpen,gs.ersD);
+        drawRaceHUD(ctx,gs);
+        drawFlag(ctx,gs.flag,gs.flagTimer,gs.fc);
+        if(gs.lights>0&&gs.lights<6)drawLights(ctx,gs.lights);
+        if(gs.lights>0&&gs.lights<=6&&!gs.raceOn){
+          ctx.fillStyle="rgba(0,0,0,0.82)";ctx.fillRect(SW/2-100,HORIZON+10,200,28);
+          ctx.strokeStyle="#ffdd00";ctx.lineWidth=1;ctx.strokeRect(SW/2-100,HORIZON+10,200,28);
+          ctx.fillStyle="#ffdd00";ctx.font="900 10px monospace";ctx.textAlign="center";
+          ctx.fillText(`STARTING FROM ${ORDINALS[gs.gridPos]||`P${gs.gridPos+1}`}`,SW/2,HORIZON+20);
+          ctx.fillStyle="#888";ctx.font="700 8px monospace";ctx.fillText("BASED ON QUALIFYING",SW/2,HORIZON+32);
+        }
+        if(gs.pitReq&&gs.pitPhase==="none"){
+          ctx.fillStyle="rgba(0,0,0,0.8)";ctx.fillRect(SW/2-106,HORIZON+9,212,34);
+          ctx.fillStyle="#ff8800";ctx.font="900 11px monospace";ctx.textAlign="center";ctx.fillText("🔧 BOX THIS LAP",SW/2,HORIZON+23);
+          ctx.fillStyle=TIRES[gs.nextTire].col;ctx.font="700 8px monospace";ctx.fillText(`→ ${TIRES[gs.nextTire].name}`,SW/2,HORIZON+34);
+        }
+      }
+
+      if(gs.finished&&alive){
+        setTimeout(()=>{
+          if(!alive)return;
+          const rem=gs.ais.filter(a=>!a.finished).sort((a,b)=>b.z-a.z);
+          const fin=[...finRef.current];
+          for(const ai of rem)fin.push({name:ai.name,team:ai.team,col:ai.col,isPlayer:false,pits:ai.hasPitted?1:0,best:"--"});
+          setResults(fin);setScreen("finish");alive=false;
+        },1600);
+      }
+
+      rafRef.current=requestAnimationFrame(loop);
+    };
+    rafRef.current=requestAnimationFrame(loop);
+    return()=>{alive=false;cancelAnimationFrame(rafRef.current);};
+  },[screen]);
+
+  // ── STYLES ──────────────────────────────────────────────────────────────
+  const BG={position:"fixed",inset:0,background:"#020204",display:"flex",alignItems:"center",justifyContent:"center"};
+  const GAME={position:"relative",width:SW,height:SH,overflow:"hidden",background:"#020204",fontFamily:"'Courier New',monospace",color:"white",flexShrink:0};
+  const CENTER={display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",padding:"14px",overflowY:"auto",textAlign:"center"};
+  const TITLE={fontSize:30,fontWeight:900,letterSpacing:5,background:"linear-gradient(90deg,#ff1100,#ff8800)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",margin:"4px 0 4px",lineHeight:1.1};
+  const bigBtn=(bg,col)=>({padding:"12px 36px",background:bg,color:col||"white",border:"none",borderRadius:12,fontSize:13,fontWeight:900,letterSpacing:2,cursor:"pointer",fontFamily:"'Courier New',monospace",boxShadow:`0 0 24px ${bg}88`});
+  const ctrl=(c,w,h)=>({width:w,height:h,fontSize:12,fontWeight:700,background:`${c}18`,border:`2px solid ${c}44`,borderRadius:10,color:"white",cursor:"pointer",fontFamily:"'Courier New',monospace",touchAction:"none",userSelect:"none",WebkitUserSelect:"none"});
+
+  const wrap=(content)=>(
+    <div style={BG}>
+      <div style={{...GAME,transform:`scale(${scale})`,transformOrigin:"center center"}}>
+        {content}
+      </div>
+    </div>
+  );
+
+  // ── MENU ────────────────────────────────────────────────────────────────
+  if(screen==="menu") return wrap(
+    <div style={CENTER}>
+      <div style={{fontSize:48,filter:"drop-shadow(0 0 24px #e8002d)",marginBottom:2}}>🏎️</div>
+      <h1 style={TITLE}>F1 SIMULATOR</h1>
+      <div style={{background:"#0d0d0d",border:"1px solid #e8002d33",borderRadius:10,padding:"8px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+        <div style={{fontSize:26}}>🏎️</div>
+        <div style={{textAlign:"left"}}>
+          <div style={{fontSize:13,fontWeight:900,color:"#fff"}}>LEWIS HAMILTON</div>
+          <div style={{fontSize:9,color:"#e8002d",letterSpacing:1}}>🔴 SCUDERIA FERRARI · #44</div>
+        </div>
+      </div>
+      <div style={{fontSize:9,color:"#4488ff",letterSpacing:2,marginBottom:7}}>WEATHER</div>
+      <div style={{display:"flex",gap:7,marginBottom:12,width:280}}>
+        {[["dry","☀️","DRY","#ff8800"],["wet","🌧","RAIN","#4488ff"],["random","🎲","RANDOM","#aa66ff"]].map(([k,em,lb,col])=>(
+          <div key={k} onClick={()=>setWeather(k)} style={{flex:1,padding:"8px 4px",textAlign:"center",borderRadius:9,border:`2px solid ${weather===k?col:"#1e1e1e"}`,background:weather===k?"#111":"#080808",cursor:"pointer",boxShadow:weather===k?`0 0 12px ${col}44`:"none"}}>
+            <div style={{fontSize:18}}>{em}</div>
+            <div style={{fontSize:8,fontWeight:700,color:weather===k?col:"#444",marginTop:2}}>{lb}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{fontSize:9,color:"#e8002d",letterSpacing:2,marginBottom:7}}>QUALIFYING TIRE</div>
+      <div style={{width:280,marginBottom:12}}>
+        {Object.entries(TIRES).map(([k,t])=>(
+          <div key={k} onClick={()=>setStartTire(k)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",marginBottom:5,background:startTire===k?"#181818":"#090909",border:`2px solid ${startTire===k?t.col:"#1a1a1a"}`,borderRadius:10,cursor:"pointer",boxShadow:startTire===k?`0 0 10px ${t.col}44`:"none"}}>
+            <div style={{width:18,height:18,borderRadius:"50%",background:t.col,flexShrink:0,boxShadow:`0 0 6px ${t.col}88`}}/>
+            <span style={{fontSize:11,fontWeight:900,color:t.col}}>{t.name}</span>
+            <span style={{fontSize:8,color:"#555",marginLeft:4}}>{t.tag}</span>
+            {startTire===k&&<span style={{marginLeft:"auto",fontSize:12}}>✅</span>}
+          </div>
+        ))}
+      </div>
+      <div style={{fontSize:8,color:"#2a2a2a",lineHeight:2.2,marginBottom:14,textAlign:"left",borderTop:"1px solid #111",paddingTop:8,width:280}}>
+        ⬆️ Gas &nbsp; ⬇️ Brake &nbsp; ⬅️➡️ Steer<br/>
+        <span style={{color:"#663399"}}>⚡ERS</span> = overtake boost &nbsp; <span style={{color:"#006622"}}>DRS</span> = speed in zone<br/>
+        🏁 Q1→Q2→Q3 qualifying sets your grid slot
+      </div>
+      <button onClick={()=>{setSeasonMode(true);setSeasonRound(0);setSeasonStandings(initStandings());setScreen("seasonNext");}} style={bigBtn("#ffdd00","#111")}>🏆 START SEASON</button>
+      <button onClick={()=>{setSeasonMode(false);startQuali();}} style={{...bigBtn("#e8002d","#fff"),marginTop:8}}>🕐 SINGLE RACE</button>
+    </div>
+  );
+
+  // ── QUALI SCREEN ─────────────────────────────────────────────────────────
+  if(screen==="quali") return wrap(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 10px",background:"rgba(0,0,0,0.7)"}}>
+        <div style={{display:"flex",gap:4}}>
+          {[1,2,3].map(s=>{
+            const active=s===qualiSession,done=s<qualiSession;
+            const col=s===3?"#ffdd00":s===2?"#ff6600":"#ffaa00";
+            return <div key={s} style={{padding:"2px 7px",borderRadius:5,background:active?col:"transparent",border:`1px solid ${active?col:done?"#333":"#1a1a1a"}`,fontSize:8,fontWeight:900,color:active?"#000":done?"#444":"#222",fontFamily:"'Courier New',monospace"}}>Q{s}{done?"✓":""}</div>;
+          })}
+        </div>
+        <div style={{fontSize:12,fontWeight:900}}>{hud.speed}<span style={{fontSize:7,color:"#333"}}> KMH</span></div>
+        <div style={{fontSize:9,color:"#aa44ff"}}>{hud.bestLap>0?`BEST ${fmtT(hud.bestLap)}`:"NO TIME"}</div>
+      </div>
+      <div style={{flex:1,position:"relative",overflow:"hidden"}} onClick={()=>{if(gsRef.current?.qualiPhase==="done"&&qualiKnockoutData)setScreen("qualiKnockout");}}>
+        <canvas ref={cvRef} width={SW} height={SH} style={{display:"block",width:"100%",height:"100%"}}/>
+      </div>
+      <div style={{padding:"2px 12px"}}>
+        <div style={{height:3,background:"#0d0d0d",borderRadius:2}}><div style={{height:3,width:`${hud.speed/KMH*100}%`,background:"linear-gradient(90deg,#ffdd00,#ff8800)",borderRadius:2}}/></div>
+      </div>
+      <div style={{display:"flex",gap:7,padding:"3px 0 4px",alignItems:"center",justifyContent:"center"}}>
+        <button onPointerDown={()=>btnRef.current.left=true} onPointerUp={()=>btnRef.current.left=false} onPointerLeave={()=>btnRef.current.left=false} style={ctrl("#ffdd00","58px","50px")}>◀</button>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <button onPointerDown={()=>btnRef.current.gas=true} onPointerUp={()=>btnRef.current.gas=false} onPointerLeave={()=>btnRef.current.gas=false} style={ctrl("#1a9933","64px","34px")}>⛽ GAS</button>
+          <button onPointerDown={()=>btnRef.current.brake=true} onPointerUp={()=>btnRef.current.brake=false} onPointerLeave={()=>btnRef.current.brake=false} style={ctrl("#991122","64px","30px")}>🛑 BRK</button>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <button onPointerDown={()=>btnRef.current.ers=true} onPointerUp={()=>btnRef.current.ers=false} onPointerLeave={()=>btnRef.current.ers=false} style={{...ctrl("#8833cc","52px","34px"),fontWeight:900,fontSize:9}}>⚡ERS</button>
+          <button onPointerDown={()=>btnRef.current.drs=true} onPointerUp={()=>btnRef.current.drs=false} onPointerLeave={()=>btnRef.current.drs=false} style={{...ctrl("#00cc44","52px","28px"),fontWeight:900,fontSize:9}}>DRS</button>
+        </div>
+        <button onClick={()=>{if(gsRef.current&&gsRef.current.pitPhase==="none"&&!gsRef.current.pitReq)setPitMenu(v=>!v);}}
+          style={{width:48,height:50,fontSize:9,fontWeight:900,lineHeight:1.4,
+            background:hud.pitReq?"#2a1600":"#080808",
+            border:`2px solid ${hud.pitReq?"#ff8800":"#2a2a2a"}`,
+            borderRadius:9,color:hud.pitReq?"#ff8800":"#444",
+            cursor:"pointer",fontFamily:"'Courier New',monospace"}}>
+          🔧<br/>{hud.pitReq?"BOX":"PIT"}
+        </button>
+        <button onPointerDown={()=>btnRef.current.right=true} onPointerUp={()=>btnRef.current.right=false} onPointerLeave={()=>btnRef.current.right=false} style={ctrl("#ffdd00","58px","50px")}>▶</button>
+      </div>
+      {/* Pit menu popup for qualifying */}
+      {pitMenu&&screen==="quali"&&(
+        <div style={{position:"absolute",bottom:80,left:"50%",transform:"translateX(-50%)",background:"#080808",border:"1px solid #2a2a2a",borderRadius:12,padding:"12px 14px",width:230,zIndex:20}}>
+          <div style={{fontSize:9,color:"#ff8800",letterSpacing:2,marginBottom:10,textAlign:"center"}}>🔧 CHOOSE NEW TIRES</div>
+          {Object.entries(TIRES).filter(([k])=>k!==hud.tire).map(([k,t])=>(
+            <div key={k} onClick={()=>{
+              if(!gsRef.current)return;
+              gsRef.current.pitReq=true;gsRef.current.nextTire=k;
+              setPitMenu(false);
+              radio(gsRef.current,`Box box! Fresh ${t.name} tires ready!`);
+            }} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",marginBottom:5,borderRadius:8,border:`1px solid ${t.col}44`,background:`${t.col}12`,cursor:"pointer"}}>
+              <div style={{width:16,height:16,borderRadius:"50%",background:t.col,flexShrink:0}}/>
+              <div><div style={{fontSize:11,fontWeight:700,color:t.col}}>{t.name}</div><div style={{fontSize:8,color:"#555"}}>{t.tag}</div></div>
+            </div>
+          ))}
+          <div onClick={()=>setPitMenu(false)} style={{textAlign:"center",color:"#2a2a2a",fontSize:8,cursor:"pointer",marginTop:4}}>✕ CANCEL</div>
+        </div>
+      )}
+    </div>
+  );
+
+  // ── QUALI KNOCKOUT ──────────────────────────────────────────────────────
+  if(screen==="qualiKnockout"&&qualiKnockoutData){
+    const {session,allTimes,knocked,surviving,playerKnocked,isFinal,fullGrid}=qualiKnockoutData;
+    const nextSession=session+1;
+    const sCol={1:"#ffaa00",2:"#ff6600",3:"#ffdd00"}[session]||"#ffdd00";
+    const playerPos=allTimes.findIndex(d=>d.isPlayer)+1;
+    return wrap(
+      <div style={CENTER}>
+        <div style={{display:"flex",gap:6,marginBottom:8}}>
+          {[1,2,3].map(s=><div key={s} style={{padding:"3px 12px",borderRadius:7,background:s===session?"#1a1200":s<session?"#0a0a0a":"#050505",border:`1px solid ${s===session?sCol:s<session?"#333":"#111"}`,fontSize:9,fontWeight:900,color:s===session?sCol:s<session?"#444":"#222",fontFamily:"'Courier New',monospace"}}>Q{s}{s<session?"✓":""}</div>)}
+        </div>
+        <h1 style={{...TITLE,fontSize:20,color:sCol}}>Q{session} RESULTS</h1>
+        <div style={{background:playerKnocked?"#1a0000":isFinal?"#001500":"#001a00",border:`1px solid ${playerKnocked?"#ff2200":isFinal?"#ffdd00":"#00aa44"}`,borderRadius:9,padding:"8px 16px",marginBottom:10,textAlign:"center",width:260}}>
+          <div style={{fontSize:9,color:playerKnocked?"#ff2200":isFinal?"#ffdd00":"#00cc44",fontWeight:900,letterSpacing:2}}>
+            {playerKnocked?"❌ KNOCKED OUT":isFinal?`🏁 Q3 — ${ORDINALS[playerPos-1]||`P${playerPos}`}`:"✅ THROUGH TO Q"+nextSession}
+          </div>
+          <div style={{fontSize:16,fontWeight:900,color:"#fff",marginTop:3}}>{ORDINALS[playerPos-1]||`P${playerPos}`} — {fmtT(allTimes.find(d=>d.isPlayer)?.time)}</div>
+        </div>
+        <div style={{width:290,marginBottom:8,maxHeight:"30vh",overflowY:"auto"}}>
+          {allTimes.map((d,i)=>{
+            const isK=knocked.some(x=>x.name===d.name);
+            return(
+              <div key={d.name} style={{display:"flex",alignItems:"center",gap:7,padding:"6px 9px",marginBottom:2,background:d.isPlayer?"#120800":isK?"#0d0000":"#060606",border:`1px solid ${d.isPlayer?"#ffdd0055":isK?"#44000055":"#0d0d0d"}`,borderLeft:`4px solid ${isK?"#440000":d.col}`,borderRadius:5,opacity:isK?0.7:1}}>
+                <span style={{fontSize:8,width:20,color:i<allTimes.length-knocked.length?"#ffdd00":"#550000",fontWeight:900}}>P{i+1}</span>
+                <span style={{flex:1,fontWeight:d.isPlayer?900:700,fontSize:10,color:d.isPlayer?"#ffdd00":isK?"#553333":"#bbb"}}>{d.name}</span>
+                {isK&&<span style={{fontSize:7,color:"#550000"}}>OUT</span>}
+                <span style={{fontSize:9,color:d.isPlayer?"#ffdd00":"#777"}}>{fmtT(d.time)}</span>
+              </div>
+            );
+          })}
+        </div>
+        {isFinal||playerKnocked?(
+          <>
+            <button onClick={()=>{
+              const grid=(fullGrid||allTimes).map(d=>({...d,qualiTime:d.time||d.qualiTime||99999,isPlayer:d.isPlayer||false,startZ:d.startZ||0,base:d.base||0.85,tire:d.tire||startTire}));
+              setQualiResults(grid);setScreen("qualiResults");
+            }} style={bigBtn("#e8002d","#fff")}>🏁 SEE FINAL GRID</button>
+            <button onClick={startQuali} style={{...bigBtn("#111","#555"),marginTop:7,border:"1px solid #1a1a1a",boxShadow:"none"}}>🔄 REQUALI</button>
+          </>
+        ):(
+          <>
+            <button onClick={()=>{
+              setQualiSession(nextSession);
+              const surv=surviving.filter(d=>!d.isPlayer).map(d=>d.name);
+              setQualiActiveAIs(surv);launchQuali(nextSession,surv,weather);
+            }} style={bigBtn(sCol,"#111")}>🚦 START Q{nextSession} →</button>
+            <button onClick={startQuali} style={{...bigBtn("#111","#555"),marginTop:7,border:"1px solid #1a1a1a",boxShadow:"none"}}>🔄 RESTART</button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ── QUALI RESULTS ────────────────────────────────────────────────────────
+  if(screen==="qualiResults"&&qualiResults) return wrap(
+    <div style={CENTER}>
+      <div style={{fontSize:12,color:"#ffdd00",letterSpacing:3,marginBottom:4}}>🏁 STARTING GRID</div>
+      <p style={{color:"#444",fontSize:8,letterSpacing:2,marginBottom:12}}>Q1 · Q2 · Q3 COMPLETE</p>
+      <div style={{width:290,marginBottom:14,maxHeight:"50vh",overflowY:"auto"}}>
+        {qualiResults.map((r,i)=>(
+          <div key={r.name||r.short} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 11px",marginBottom:4,background:r.isPlayer?"#120800":"#070707",border:`1px solid ${r.isPlayer?"#ffdd0055":"#111"}`,borderLeft:`4px solid ${r.col}`,borderRadius:8}}>
+            <span style={{fontSize:16,width:32}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`P${i+1}`}</span>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:900,fontSize:12,color:r.isPlayer?"#ffdd00":"#bbb"}}>{r.name}</div>
+              <div style={{fontSize:8,color:r.col}}>{r.team}</div>
+            </div>
+            <div style={{fontSize:11,fontWeight:700,color:r.isPlayer?"#ffdd00":"#666"}}>{fmtT(r.qualiTime||r.time)}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{color:"#444",fontSize:8,marginBottom:12,textAlign:"center"}}>
+        {qualiResults.findIndex(r=>r.isPlayer)===0?"🏆 POLE POSITION!":qualiResults.findIndex(r=>r.isPlayer)<3?"🎉 Front row!":
+         `P${qualiResults.findIndex(r=>r.isPlayer)+1} — Fight your way through!`}
+      </div>
+      <button onClick={()=>startRace(qualiResults)} style={bigBtn("#e8002d","#fff")}>🚦 START THE RACE!</button>
+      <button onClick={startQuali} style={{...bigBtn("#111","#555"),marginTop:7,border:"1px solid #1a1a1a",boxShadow:"none"}}>🔄 REQUALI</button>
+    </div>
+  );
+
+  // ── FINISH ───────────────────────────────────────────────────────────────
+  if(screen==="finish"){
+    const pR=results.findIndex(r=>r.isPlayer);
+    const updatedStandings=seasonMode&&seasonStandings?addPoints(seasonStandings,results):null;
+    const teamStandings=updatedStandings?getTeamStandings(updatedStandings):null;
+    const nextRound=seasonRound+1;
+    const seasonDone=seasonMode&&nextRound>=SEASON_ROUNDS;
+    return wrap(
+      <div style={CENTER}>
+        {seasonMode&&<div style={{fontSize:9,color:"#ffdd00",letterSpacing:2,marginBottom:4}}>🏆 ROUND {seasonRound+1}/{SEASON_ROUNDS} — {CIRCUITS[seasonRound%SEASON_ROUNDS].country} {CIRCUITS[seasonRound%SEASON_ROUNDS].name}</div>}
+        <div style={{fontSize:42}}>{pR===0?"🏆":pR<3?"🎉":"😤"}</div>
+        <h1 style={{...TITLE,color:pR===0?"#ff8800":"white",fontSize:20,lineHeight:1.2}}>
+          {pR===0?"WINNER!":pR<3?"GREAT DRIVE!":"RACE DONE!"}
+          {pR===0&&" +25 PTS"}{pR===1&&" +18 PTS"}{pR===2&&" +15 PTS"}
+        </h1>
+        <p style={{color:"#444",fontSize:8,letterSpacing:2,marginBottom:7}}>RACE RESULT</p>
+        <div style={{width:290,marginBottom:8,maxHeight:"38vh",overflowY:"auto"}}>
+          {results.map((r,i)=>(
+            <div key={r.name} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 10px",marginBottom:3,background:r.isPlayer?"#110000":"#060606",border:`1px solid ${r.isPlayer?"#e8002d55":"#0d0d0d"}`,borderLeft:`4px solid ${r.col}`,borderRadius:5}}>
+              <span style={{fontSize:10,width:26,color:i<3?"#ffdd00":"#444",fontWeight:i<3?900:400}}>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`P${i+1}`}</span>
+              <span style={{flex:1,fontWeight:r.isPlayer?900:700,fontSize:11,color:r.isPlayer?"#fff":"#bbb"}}>{r.name}</span>
+              <span style={{fontSize:8,color:"#ff8800",fontWeight:700,minWidth:24,textAlign:"right"}}>{POINTS_TABLE[i]?`+${POINTS_TABLE[i]}`:""}</span>
+              <span style={{fontSize:8,color:r.col,minWidth:60,textAlign:"right"}}>{r.team}</span>
+            </div>
+          ))}
+        </div>
+        {updatedStandings&&teamStandings&&<StandingsTabs drivers={updatedStandings} teams={teamStandings} tab={standingsTab} setTab={setStandingsTab}/>}
+        {seasonDone?(
+          <>
+            <div style={{fontSize:24,marginBottom:4}}>🏆</div>
+            <div style={{color:"#ffdd00",fontSize:13,fontWeight:900,marginBottom:4}}>SEASON CHAMPION!</div>
+            <div style={{color:"#888",fontSize:9,marginBottom:10}}>{updatedStandings?.[0]?.name||"CHAMPION"} wins!</div>
+            <button onClick={()=>{setSeasonMode(false);setSeasonRound(0);setSeasonStandings(null);setScreen("menu");}} style={bigBtn("#ffdd00","#111")}>🏠 MENU</button>
+          </>
+        ):seasonMode?(
+          <>
+            <button onClick={()=>{setSeasonStandings(updatedStandings);setSeasonRound(r=>r+1);setScreen("seasonNext");}} style={bigBtn("#ffdd00","#111")}>➡️ NEXT: {CIRCUITS[nextRound%SEASON_ROUNDS].country} {CIRCUITS[nextRound%SEASON_ROUNDS].name}</button>
+            <button onClick={()=>{setSeasonMode(false);setSeasonRound(0);setSeasonStandings(null);setScreen("menu");}} style={{...bigBtn("#111","#555"),marginTop:7,border:"1px solid #1a1a1a",boxShadow:"none"}}>🏠 QUIT SEASON</button>
+          </>
+        ):(
+          <>
+            <button onClick={startQuali} style={bigBtn("#ffdd00","#111")}>🔄 RACE AGAIN</button>
+            <button onClick={()=>setScreen("menu")} style={{...bigBtn("#080808","#555"),marginTop:7,border:"1px solid #111",boxShadow:"none"}}>🏠 MENU</button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ── SEASON NEXT ──────────────────────────────────────────────────────────
+  if(screen==="seasonNext"){
+    const circ=CIRCUITS[seasonRound%SEASON_ROUNDS];
+    return wrap(
+      <div style={CENTER}>
+        <div style={{fontSize:8,color:"#ffdd00",letterSpacing:2,marginBottom:6}}>🏆 SEASON — ROUND {seasonRound+1}/{SEASON_ROUNDS}</div>
+        <div style={{fontSize:36,marginBottom:4}}>{circ.country}</div>
+        <h1 style={{...TITLE,fontSize:22}}>{circ.name}</h1>
+        <p style={{color:"#444",fontSize:8,letterSpacing:2,marginBottom:12}}>GRAND PRIX</p>
+        {seasonStandings&&<StandingsTabs drivers={seasonStandings} teams={getTeamStandings(seasonStandings)} tab={standingsTab} setTab={setStandingsTab}/>}
+        <div style={{fontSize:8,color:"#e8002d",letterSpacing:2,marginBottom:7}}>QUALIFYING TIRE</div>
+        <div style={{width:280,marginBottom:12}}>
+          {["soft","medium","hard"].map(k=>{const t=TIRES[k];return(
+            <div key={k} onClick={()=>setStartTire(k)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",marginBottom:4,background:startTire===k?"#181818":"#090909",border:`2px solid ${startTire===k?t.col:"#1a1a1a"}`,borderRadius:10,cursor:"pointer"}}>
+              <div style={{width:16,height:16,borderRadius:"50%",background:t.col,flexShrink:0}}/>
+              <span style={{fontSize:11,fontWeight:900,color:t.col}}>{t.name}</span>
+              <span style={{fontSize:8,color:"#555",marginLeft:4}}>{t.tag}</span>
+              {startTire===k&&<span style={{marginLeft:"auto",fontSize:12}}>✅</span>}
+            </div>
+          );})}
+        </div>
+        <button onClick={startSeasonQuali} style={bigBtn("#ffdd00","#111")}>🕐 QUALIFY</button>
+      </div>
+    );
+  }
+
+  // ── RACE ─────────────────────────────────────────────────────────────────
+  return wrap(
+    <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 10px",background:"rgba(0,0,0,0.6)"}}>
+        <div style={{fontSize:14,fontWeight:900,color:hud.pos===1?"#ff8800":"white"}}>{ORDINALS[hud.pos-1]||`P${hud.pos}`}</div>
+        <div><span style={{fontSize:12,fontWeight:900}}>LAP {hud.lap}</span><span style={{fontSize:8,color:"#222"}}>/{MAX_LAPS}</span></div>
+        <div style={{fontSize:14,fontWeight:900,color:"#e8002d"}}>{hud.speed}<span style={{fontSize:7,color:"#333"}}> KMH</span></div>
+      </div>
+      <div style={{flex:1,position:"relative",overflow:"hidden"}}>
+        <canvas ref={cvRef} width={SW} height={SH} style={{display:"block",width:"100%",height:"100%"}}/>
+        {pitMenu&&(
+          <div style={{position:"absolute",top:"18%",left:"50%",transform:"translateX(-50%)",background:"#080808",border:"1px solid #2a2a2a",borderRadius:13,padding:"12px 14px",width:240,zIndex:20}}>
+            <div style={{fontSize:9,color:"#ff8800",letterSpacing:2,marginBottom:10,textAlign:"center"}}>🔧 SELECT NEW TIRES</div>
+            {Object.entries(TIRES).filter(([k])=>k!==hud.tire).map(([k,t])=>(
+              <div key={k} onClick={()=>confirmPit(k)} style={{display:"flex",alignItems:"center",gap:9,padding:"8px 10px",marginBottom:5,borderRadius:8,border:`1px solid ${t.col}44`,background:`${t.col}12`,cursor:"pointer"}}>
+                <div style={{width:16,height:16,borderRadius:"50%",background:t.col,flexShrink:0}}/>
+                <div><div style={{fontSize:11,fontWeight:700,color:t.col}}>{t.name}</div><div style={{fontSize:7,color:"#555"}}>{t.tag}</div></div>
+              </div>
+            ))}
+            <div onClick={()=>setPitMenu(false)} style={{textAlign:"center",color:"#2a2a2a",fontSize:8,cursor:"pointer",marginTop:5}}>✕ CANCEL</div>
+          </div>
+        )}
+      </div>
+      <div style={{padding:"2px 12px"}}>
+        <div style={{height:3,background:"#0d0d0d",borderRadius:2}}><div style={{height:3,width:`${hud.speed/KMH*100}%`,background:"linear-gradient(90deg,#ff8800,#e8002d)",borderRadius:2,transition:"width 0.06s"}}/></div>
+      </div>
+      <div style={{display:"flex",gap:7,padding:"3px 0 4px",alignItems:"center",justifyContent:"center"}}>
+        <button onPointerDown={()=>btnRef.current.left=true} onPointerUp={()=>btnRef.current.left=false} onPointerLeave={()=>btnRef.current.left=false} style={ctrl("#e8002d","56px","50px")}>◀</button>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <button onPointerDown={()=>btnRef.current.gas=true} onPointerUp={()=>btnRef.current.gas=false} onPointerLeave={()=>btnRef.current.gas=false} style={ctrl("#1a9933","62px","34px")}>⛽ GAS</button>
+          <button onPointerDown={()=>btnRef.current.brake=true} onPointerUp={()=>btnRef.current.brake=false} onPointerLeave={()=>btnRef.current.brake=false} style={ctrl("#991122","62px","30px")}>🛑 BRK</button>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <button onPointerDown={()=>btnRef.current.ers=true} onPointerUp={()=>btnRef.current.ers=false} onPointerLeave={()=>btnRef.current.ers=false} style={{...ctrl("#8833cc","50px","34px"),fontWeight:900,fontSize:9,background:hud.ersD?"#200055":"#0a0012",border:`2px solid ${hud.ersD?"#cc44ff":"#2a0a44"}`,color:hud.ersD?"#cc44ff":"#441166",boxShadow:hud.ersD?"0 0 10px #cc44ff77":"none"}}>⚡ERS</button>
+          <button onPointerDown={()=>btnRef.current.drs=true} onPointerUp={()=>btnRef.current.drs=false} onPointerLeave={()=>btnRef.current.drs=false} style={{...ctrl("#00cc44","50px","28px"),fontWeight:900,fontSize:9,background:hud.drsO?"#002a11":"#060606",border:`2px solid ${hud.drsA?"#00cc44":"#0a1a0a"}`,color:hud.drsA?"#00cc44":"#0a2a0a"}}>DRS</button>
+        </div>
+        <button onClick={()=>{if(hud.pitPhase==="none"&&hud.lap>=2&&!hud.pitReq)setPitMenu(v=>!v);}}
+          style={{width:46,height:50,fontSize:8,fontWeight:900,lineHeight:1.4,background:hud.pitReq?"#2a1600":hud.wet>40?"#00102a":"#080808",border:`2px solid ${hud.pitReq?"#ff8800":hud.wet>40?"#4488ff":hud.dmg>35?"#ff3300":"#1e1e1e"}`,borderRadius:10,color:hud.pitReq?"#ff8800":hud.wet>40?"#4488ff":"#383838",cursor:"pointer",fontFamily:"'Courier New',monospace"}}>
+          🔧<br/>{hud.pitReq?"BOX":"PIT"}
+        </button>
+        <button onPointerDown={()=>btnRef.current.right=true} onPointerUp={()=>btnRef.current.right=false} onPointerLeave={()=>btnRef.current.right=false} style={ctrl("#e8002d","56px","50px")}>▶</button>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<F1Sim />);
+</script>
+</body>
+</html>

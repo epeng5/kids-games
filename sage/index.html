@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sage's Word Search</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { overflow-x: hidden; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+// ── Word → emoji mapping per theme ───────────────────────────────────────────
+const THEMES = {
+  unicorns: {
+    name: "Unicorns", emoji: "🦄", emoji2: "✨", icon: "🌈",
+    bg: "linear-gradient(135deg, #FFE8F5 0%, #E8D5FF 40%, #D5EEFF 100%)",
+    accent: "#7B5EA7", border: "#E4CAFF", chipBorder: "#D4AAFF",
+    chipBg: "rgba(200,180,255,0.2)", chipText: "#7B5EA7",
+    cardBg: "rgba(255,255,255,0.75)", titleShadow: "#FFB3E6",
+    cardAccent: "#f0e0ff", glowFrom: "#ff9ed2", glowTo: "#b8a4ff",
+    label: "Find all the magical words!",
+    celebrate: "You're a true unicorn wizard! ✨",
+    words:  ["UNICORN","RAINBOW","SPARKLE","MAGIC","HORN","GLITTER","MANE","WINGS","STAR","CLOUD"],
+    emojis: ["🦄",     "🌈",     "✨",     "🪄",   "🦄",  "💎",    "🌸",  "🕊️",  "⭐",  "☁️"],
+    moves:  [true,     false,    false,   false,  true,  false,   false, true,   false, false],
+    found:  ["#FF9ED2","#B8A4FF","#7ECFFF","#FFD97D","#9EFFB8","#FFB3A7","#C4AAFF","#80E4FF","#FFE599","#A8F5C6"],
+  },
+  seacreatures: {
+    name: "Sea Creatures", emoji: "🐠", emoji2: "🌊", icon: "🐙",
+    bg: "linear-gradient(135deg, #D6F5FF 0%, #B3E8FF 40%, #C8F0E8 100%)",
+    accent: "#006E8C", border: "#A3DDEF", chipBorder: "#7ECFEF",
+    chipBg: "rgba(150,220,240,0.2)", chipText: "#006E8C",
+    cardBg: "rgba(255,255,255,0.75)", titleShadow: "#7DD8F0",
+    cardAccent: "#d6f5ff", glowFrom: "#5ec8e8", glowTo: "#006e8c",
+    label: "Dive in and find the sea creatures!",
+    celebrate: "You're an ocean explorer! 🌊",
+    words:  ["DOLPHIN","OCTOPUS","SEAHORSE","JELLYFISH","SHARK","WHALE","CRAB","LOBSTER","STARFISH","TURTLE"],
+    emojis: ["🐬",    "🐙",    "🦭",      "🪼",      "🦈",  "🐋",  "🦀",  "🦞",    "⭐",     "🐢"],
+    moves:  [true,    true,    true,      true,      true,  true,  true,  true,    false,    true],
+    found:  ["#5EC8E8","#F7A35C","#7BE8C0","#FF8FAB","#7BBFFF","#FFD97D","#A8F5C6","#FF9ED2","#80E4FF","#B8A4FF"],
+  },
+  moana: {
+    name: "Moana", emoji: "🌺", emoji2: "🌊", icon: "⚓",
+    bg: "linear-gradient(135deg, #FFF4D6 0%, #FFE0A0 30%, #C8F0FF 100%)",
+    accent: "#B5520A", border: "#FFD080", chipBorder: "#FFBF60",
+    chipBg: "rgba(255,200,100,0.2)", chipText: "#B5520A",
+    cardBg: "rgba(255,255,255,0.75)", titleShadow: "#FFB347",
+    cardAccent: "#fff4d6", glowFrom: "#ffb347", glowTo: "#b5520a",
+    label: "Find the words from Moana's world!",
+    celebrate: "You know the way! 🌺🌊",
+    words:  ["MOANA","MAUI","OCEAN","ISLAND","CANOE","TAMATOA","WAVE","HEART","COCONUT","VOYAGE"],
+    emojis: ["🌺",  "🪝",  "🌊",  "🏝️",   "🛶",  "🦀",    "🌊", "❤️",  "🥥",   "⛵"],
+    moves:  [false, false, false, false,   false, true,    false,false, false,  false],
+    found:  ["#FF8C42","#5EC8E8","#FFD97D","#FF9ED2","#7BE8C0","#B8A4FF","#80E4FF","#F7A35C","#9EFFB8","#FF6B6B"],
+  },
+  frozen: {
+    name: "Frozen", emoji: "❄️", emoji2: "⛄", icon: "👑",
+    bg: "linear-gradient(135deg, #E8F4FF 0%, #C8E8FF 40%, #D8F0FF 100%)",
+    accent: "#1A6FA8", border: "#A8D8F0", chipBorder: "#7EC8E8",
+    chipBg: "rgba(168,216,240,0.2)", chipText: "#1A6FA8",
+    cardBg: "rgba(255,255,255,0.80)", titleShadow: "#A8D8FF",
+    cardAccent: "#dff0ff", glowFrom: "#a8d8ff", glowTo: "#1a6fa8",
+    label: "Find the magic of Arendelle!",
+    celebrate: "The cold never bothered you anyway! ❄️",
+    words:  ["ELSA","ANNA","OLAF","SVEN","KRISTOFF","HANS","MAGIC","SNOW","ICE","CASTLE"],
+    emojis: ["👑",  "🩷",  "⛄",  "🦌",  "🧊",     "🤺",  "✨",   "❄️", "🧊", "🏰"],
+    moves:  [false, false, true,  true,  false,    false, false, false,false, false],
+    found:  ["#A8D8FF","#FFB3D9","#B8F0E8","#C8E8B8","#80C8FF","#FFD97D","#D4AAFF","#7ECFFF","#B8E8FF","#C4AAFF"],
+  },
+  rainbow: {
+    name: "Rainbow Colors", emoji: "🌈", emoji2: "✨", icon: "🎨",
+    bg: "linear-gradient(135deg, #FFF0F5 0%, #FFF8E0 25%, #F0FFF0 50%, #F0F8FF 75%, #F8F0FF 100%)",
+    accent: "#8B2FC9", border: "#E8C4FF", chipBorder: "#D4A0FF",
+    chipBg: "rgba(220,180,255,0.2)", chipText: "#8B2FC9",
+    cardBg: "rgba(255,255,255,0.82)", titleShadow: "#E8C4FF",
+    cardAccent: "#f8f0ff", glowFrom: "#ff9ed2", glowTo: "#8b2fc9",
+    label: "Find all the colors of the rainbow!",
+    celebrate: "You know every color! 🌈✨",
+    words:  ["RED",   "ORANGE", "YELLOW", "GREEN", "BLUE", "PURPLE", "PINK", "WHITE", "BROWN", "BLACK"],
+    emojis: ["🔴",   "🟠",    "🟡",    "🟢",   "🔵",  "🟣",   "🩷",  "⬜",  "🟫",  "⬛"],
+    moves:  [false,  false,   false,   false,  false, false,  false, false, false, false],
+    found:  ["#FF6B6B","#FFA552","#FFE234","#5ECC78","#5EB8FF","#C084FF","#FF9ED2","#E0E0E0","#C4956A","#888888"],
+  },
+  flowers: {
+    name: "Flowers", emoji: "🌸", emoji2: "🌼", icon: "🌷",
+    bg: "linear-gradient(135deg, #FFF0FA 0%, #FFF5E0 40%, #F0FFF5 100%)",
+    accent: "#C2185B", border: "#F8B4D9", chipBorder: "#F48CB8",
+    chipBg: "rgba(248,180,217,0.2)", chipText: "#C2185B",
+    cardBg: "rgba(255,255,255,0.82)", titleShadow: "#FFB3D9",
+    cardAccent: "#fff0fa", glowFrom: "#ff9ed2", glowTo: "#c2185b",
+    label: "Find all the beautiful flowers!",
+    celebrate: "You're a flower expert! 🌸🌼",
+    words:  ["ROSE",  "DAISY",  "TULIP",  "LILY",  "SUNFLOWER", "VIOLET", "POPPY", "ORCHID", "LOTUS", "IRIS"],
+    emojis: ["🌹",   "🌼",    "🌷",    "🌸",   "🌻",       "💜",    "🌺",   "🪷",   "🪷",  "🌸"],
+    moves:  [false,  false,   false,   false,  false,      false,   false,  false,  false, false],
+    found:  ["#FF6B8A","#FFE234","#FF8FAB","#FFB3D9","#FFD97D","#C084FF","#FF5252","#E040FB","#FF80AB","#7B8FFF"],
+  },
+};
+
+const GRID_SIZE = 12;
+const RAINBOW = ["#FF0000","#FF6600","#FFDD00","#00CC44","#0099FF","#8833FF","#FF33AA"];
+
+function generateGrid(words) {
+  const grid = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(""));
+  const placed = [];
+  const dirs = [[0,1],[1,0],[1,1],[0,-1],[-1,0],[-1,-1],[1,-1],[-1,1]];
+  for (const word of words) {
+    let ok = false, tries = 0;
+    while (!ok && tries++ < 200) {
+      const dir = dirs[Math.floor(Math.random() * dirs.length)];
+      const row = Math.floor(Math.random() * GRID_SIZE);
+      const col = Math.floor(Math.random() * GRID_SIZE);
+      const er = row + dir[0] * (word.length - 1);
+      const ec = col + dir[1] * (word.length - 1);
+      if (er < 0 || er >= GRID_SIZE || ec < 0 || ec >= GRID_SIZE) continue;
+      let can = true;
+      for (let i = 0; i < word.length; i++) {
+        const r = row + dir[0] * i, c = col + dir[1] * i;
+        if (grid[r][c] !== "" && grid[r][c] !== word[i]) { can = false; break; }
+      }
+      if (!can) continue;
+      for (let i = 0; i < word.length; i++) grid[row+dir[0]*i][col+dir[1]*i] = word[i];
+      placed.push({ word, dir, cells: Array.from({length: word.length}, (_,i) => [row+dir[0]*i, col+dir[1]*i]) });
+      ok = true;
+    }
+  }
+  const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (let r = 0; r < GRID_SIZE; r++)
+    for (let c = 0; c < GRID_SIZE; c++)
+      if (!grid[r][c]) grid[r][c] = alpha[Math.floor(Math.random() * 26)];
+  return { grid, placed };
+}
+
+// ── Theme Picker ──────────────────────────────────────────────────────────────
+function ThemePicker({ onSelect }) {
+  return (
+    <div style={{
+      minHeight:"100vh",
+      background:"linear-gradient(135deg,#FFF0FB 0%,#E8EDFF 50%,#D6F8FF 100%)",
+      display:"flex", flexDirection:"column", alignItems:"center",
+      justifyContent:"center", padding:"32px 16px",
+      fontFamily:"'Nunito','Comic Sans MS',cursive",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap');
+        .tc { cursor:pointer; transition:transform .2s,box-shadow .2s; }
+        .tc:hover { transform:scale(1.09) rotate(-1.5deg); box-shadow:0 20px 48px rgba(0,0,0,.18)!important; }
+        .tc:active { transform:scale(0.95); }
+        .tg { animation:tglow 2.5s ease-in-out infinite alternate; }
+        @keyframes tglow { from{text-shadow:0 0 12px #ffb3e6,0 0 24px #b8a4ff} to{text-shadow:0 0 24px #7ecfff,0 0 48px #b8a4ff} }
+        .f1{animation:fb 3s ease-in-out infinite}
+        .f2{animation:fb 3s ease-in-out infinite .8s}
+        .f3{animation:fb 3s ease-in-out infinite 1.6s}
+        @keyframes fb{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+      `}</style>
+      <div style={{fontSize:"2.4rem",marginBottom:10,display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
+        <span className="f1">🦄</span><span className="f2">🐠</span><span className="f3">🌺</span><span className="f1">❄️</span><span className="f2">🌈</span><span className="f3">🌸</span>
+      </div>
+      <h1 className="tg" style={{fontSize:"clamp(1.8rem,7vw,2.8rem)",margin:"0 0 6px",color:"#6B3FA0",fontWeight:900,textAlign:"center"}}>
+        Sage's Word Search!
+      </h1>
+      <p style={{color:"#9B72C8",fontWeight:800,fontSize:"1.05rem",marginBottom:32,textAlign:"center"}}>
+        Pick a theme to play ✨
+      </p>
+      <div style={{display:"flex",flexWrap:"wrap",gap:18,justifyContent:"center",maxWidth:680}}>
+        {Object.entries(THEMES).map(([key, t]) => (
+          <div key={key} className="tc" onClick={() => onSelect(key)} style={{
+            background:`linear-gradient(145deg,${t.cardAccent},white)`,
+            border:`3px solid ${t.border}`, borderRadius:24,
+            padding:"28px 28px 22px", boxShadow:`0 6px 20px ${t.accent}22`,
+            textAlign:"center", flex:"1 1 160px", maxWidth:190,
+          }}>
+            <div style={{fontSize:"3.2rem",marginBottom:6}}>{t.emoji}</div>
+            <div style={{fontSize:"1.4rem",marginBottom:6}}>{t.icon}</div>
+            <div style={{fontWeight:900,fontSize:"1.1rem",color:t.accent}}>{t.name}</div>
+            <div style={{marginTop:8,background:t.border,borderRadius:20,padding:"3px 10px",
+              display:"inline-block",fontWeight:700,fontSize:"0.75rem",color:t.accent}}>
+              {t.words.length} words
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Critter that runs across the grid ─────────────────────────────────────────
+// centerY: fraction 0-1 of grid height where the critter vertically centers
+function CritterRun({ emoji, centerY, gridRect, onDone }) {
+  const goRight = Math.random() > 0.5;
+  const top = gridRect.top + gridRect.height * centerY - 28;
+  const startX = goRight ? gridRect.left - 80 : gridRect.right + 10;
+  const endX   = goRight ? gridRect.right + 10 : gridRect.left - 80;
+
+  return (
+    <div style={{
+      position:"fixed", top, left:startX, zIndex:2000,
+      fontSize:"3.2rem", lineHeight:1, pointerEvents:"none",
+      transform: goRight ? "scaleX(1)" : "scaleX(-1)",
+      animation:`critterRun 1.6s cubic-bezier(.4,0,.6,1) forwards`,
+      "--ex": `${endX - startX}px`,
+      filter:"drop-shadow(2px 4px 6px rgba(0,0,0,0.25))",
+    }}>
+      {emoji}
+      <style>{`
+        @keyframes critterRun {
+          0%   { transform: scaleX(${goRight?1:-1}) translateX(0)      translateY(0)   rotate(0deg);   opacity:1; }
+          20%  { transform: scaleX(${goRight?1:-1}) translateX(calc(var(--ex)*.2)) translateY(-18px) rotate(${goRight?-8:8}deg); }
+          40%  { transform: scaleX(${goRight?1:-1}) translateX(calc(var(--ex)*.4)) translateY(4px)  rotate(0deg); }
+          60%  { transform: scaleX(${goRight?1:-1}) translateX(calc(var(--ex)*.6)) translateY(-14px) rotate(${goRight?-6:6}deg); }
+          80%  { transform: scaleX(${goRight?1:-1}) translateX(calc(var(--ex)*.8)) translateY(2px)  rotate(0deg); }
+          90%  { opacity:1; }
+          100% { transform: scaleX(${goRight?1:-1}) translateX(var(--ex))       translateY(0)   rotate(0deg);   opacity:0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Emoji that spins in the center of the found word ──────────────────────────
+function SpinEmoji({ emoji, centerX, centerY }) {
+  return (
+    <div style={{
+      position:"fixed", left: centerX - 36, top: centerY - 36,
+      zIndex:2000, fontSize:"4rem", lineHeight:1, pointerEvents:"none",
+      animation:"spinPop 1.4s cubic-bezier(.36,.07,.19,.97) forwards",
+      filter:"drop-shadow(2px 4px 8px rgba(0,0,0,0.3))",
+      transformOrigin:"center",
+    }}>
+      {emoji}
+      <style>{`
+        @keyframes spinPop {
+          0%   { transform:scale(0) rotate(0deg);   opacity:0; }
+          20%  { transform:scale(1.4) rotate(120deg); opacity:1; }
+          50%  { transform:scale(1.1) rotate(540deg); opacity:1; }
+          80%  { transform:scale(1.2) rotate(900deg); opacity:1; }
+          100% { transform:scale(0.2) rotate(1080deg); opacity:0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Main Puzzle ───────────────────────────────────────────────────────────────
+function Puzzle({ themeKey, onBack }) {
+  const theme = THEMES[themeKey];
+  const [puzzleKey, setPuzzleKey] = useState(0);
+  const [{ grid, placed }] = useState(() => generateGrid(theme.words));
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState([]);
+  const [foundWords, setFoundWords] = useState([]);
+  const [foundCells, setFoundCells] = useState({});
+  const [celebrate, setCelebrate] = useState(false);
+  const [particles, setParticles] = useState([]);
+  const [critters, setCritters] = useState([]);
+  const [gridRect, setGridRect] = useState(null);
+  const [hintCells, setHintCells] = useState(new Set());
+  const [hintCooldown, setHintCooldown] = useState(false);
+  const gridRef = useRef(null);
+  const getCellKey = (r, c) => `${r}-${c}`;
+
+  // Measure grid position whenever layout settles
+  const measureGrid = useCallback(() => {
+    if (gridRef.current) setGridRect(gridRef.current.getBoundingClientRect());
+  }, []);
+  useEffect(() => {
+    measureGrid();
+    window.addEventListener("resize", measureGrid);
+    return () => window.removeEventListener("resize", measureGrid);
+  }, [measureGrid]);
+
+  const startSelect = (r, c) => { setSelecting(true); setSelected([[r, c]]); };
+
+  const continueSelect = (r, c) => {
+    if (!selecting) return;
+    const start = selected[0];
+    if (!start) return;
+    const dr = r - start[0], dc = c - start[1];
+    if (!dr && !dc) { setSelected([start]); return; }
+    let dirR = dr ? dr / Math.abs(dr) : 0;
+    let dirC = dc ? dc / Math.abs(dc) : 0;
+    if (dr && dc && Math.abs(dr) !== Math.abs(dc)) {
+      if (Math.abs(dr) > Math.abs(dc)) dirC = 0; else dirR = 0;
+    }
+    const steps = (dirR && dirC) ? Math.min(Math.abs(dr),Math.abs(dc)) : dirR ? Math.abs(dr) : Math.abs(dc);
+    setSelected(Array.from({length:steps+1},(_,i)=>[start[0]+dirR*i, start[1]+dirC*i]));
+  };
+
+  const spawnParticles = () => {
+    const now = Date.now();
+    const p = Array.from({length:16},(_,i)=>({
+      id:`${now}-${i}`, x:5+Math.random()*90,
+      delay:Math.random()*.6, color:RAINBOW[i%RAINBOW.length],
+      size:1.3+Math.random()*1.1, sway:(Math.random()-.5)*60,
+    }));
+    setParticles(prev=>[...prev,...p]);
+    setTimeout(()=>setParticles(prev=>prev.filter(x=>!p.find(q=>q.id===x.id))),3500);
+  };
+
+  const spawnCritter = (wordIdx, matchCells) => {
+    if (!gridRef.current) return;
+    const rect = gridRef.current.getBoundingClientRect();
+    setGridRect(rect);
+    const id = Date.now() + Math.random();
+    const emoji = theme.emojis[wordIdx];
+    const doesMove = theme.moves[wordIdx];
+
+    if (doesMove) {
+      const avgRow = matchCells.reduce((s,[r])=>s+r,0) / matchCells.length;
+      const centerY = (avgRow + 0.5) / GRID_SIZE;
+      setCritters(prev=>[...prev,{id, type:"run", emoji, centerY, rect}]);
+    } else {
+      // Find pixel center of the word
+      const avgRow = matchCells.reduce((s,[r])=>s+r,0) / matchCells.length;
+      const avgCol = matchCells.reduce((s,[,c])=>s+c,0) / matchCells.length;
+      const cellW = rect.width / GRID_SIZE;
+      const cellH = rect.height / GRID_SIZE;
+      const centerX = rect.left + (avgCol + 0.5) * cellW;
+      const centerY = rect.top  + (avgRow + 0.5) * cellH;
+      setCritters(prev=>[...prev,{id, type:"spin", emoji, centerX, centerY}]);
+    }
+    setTimeout(()=>setCritters(prev=>prev.filter(c=>c.id!==id)), 1800);
+  };
+
+  const showHint = () => {
+    if (hintCooldown) return;
+    const remaining = placed.filter(p => !foundWords.includes(p.word));
+    if (!remaining.length) return;
+    const pick = remaining[Math.floor(Math.random() * remaining.length)];
+    // Reveal just the first 2 letters as a hint
+    const hintSet = new Set(pick.cells.slice(0, 2).map(([r,c]) => getCellKey(r,c)));
+    setHintCells(hintSet);
+    setHintCooldown(true);
+    setTimeout(() => setHintCells(new Set()), 2500);
+    setTimeout(() => setHintCooldown(false), 8000);
+  };
+
+  const endSelect = useCallback(() => {
+    if (!selecting) return;
+    setSelecting(false);
+    const word = selected.map(([r,c])=>grid[r][c]).join("");
+    const wordRev = word.split("").reverse().join("");
+    const match = placed.find(p=>p.word===word||p.word===wordRev);
+    if (match && !foundWords.includes(match.word)) {
+      const wordIdx = theme.words.indexOf(match.word);
+      const color = theme.found[wordIdx];
+      const newFC = {...foundCells};
+      match.cells.forEach(([r,c])=>{newFC[getCellKey(r,c)]=color;});
+      setFoundCells(newFC);
+      setFoundWords(prev=>{
+        const next=[...prev,match.word];
+        if (next.length===theme.words.length) setTimeout(()=>setCelebrate(true),300);
+        return next;
+      });
+      spawnParticles();
+      spawnCritter(wordIdx, match.cells);
+    }
+    setSelected([]);
+  }, [selecting,selected,grid,placed,foundWords,foundCells,theme]);
+
+  // Touch handlers
+  useEffect(()=>{
+    const el = gridRef.current;
+    if (!el) return;
+    const ts=(e)=>{ e.preventDefault(); const t=e.touches[0]; const tgt=document.elementFromPoint(t.clientX,t.clientY); if(tgt?.dataset?.r!=null)startSelect(+tgt.dataset.r,+tgt.dataset.c); };
+    const tm=(e)=>{ e.preventDefault(); const t=e.touches[0]; const tgt=document.elementFromPoint(t.clientX,t.clientY); if(tgt?.dataset?.r!=null)continueSelect(+tgt.dataset.r,+tgt.dataset.c); };
+    const te=(e)=>{ e.preventDefault(); endSelect(); };
+    el.addEventListener("touchstart",ts,{passive:false});
+    el.addEventListener("touchmove",tm,{passive:false});
+    el.addEventListener("touchend",te,{passive:false});
+    return()=>{ el.removeEventListener("touchstart",ts); el.removeEventListener("touchmove",tm); el.removeEventListener("touchend",te); };
+  },[selecting,selected,endSelect]);
+
+  const selKeys = new Set(selected.map(([r,c])=>getCellKey(r,c)));
+
+  return (
+    <>
+    <div style={{
+      minHeight:"100vh", background:theme.bg,
+      fontFamily:"'Nunito','Comic Sans MS',cursive",
+      display:"flex", flexDirection:"column", alignItems:"center",
+      padding:"14px 10px 28px", position:"relative",
+      userSelect:"none",
+    }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap');
+        .cell{cursor:pointer;transition:transform .1s;}
+        .cell:hover{transform:scale(1.1);}
+        .heart{position:fixed;top:-8%;pointer-events:none;z-index:999;animation:hfall 3s ease-in forwards;}
+        @keyframes hfall{0%{top:-8%;opacity:1;transform:rotate(0) translateX(0)}80%{opacity:1}100%{top:108%;opacity:0;transform:rotate(360deg) translateX(var(--sway))}}
+        .wchip{transition:all .3s;}
+        .wfound{animation:wpop .5s cubic-bezier(.36,.07,.19,.97);}
+        @keyframes wpop{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
+        .pglow{animation:pglow 2s ease-in-out infinite alternate;}
+        @keyframes pglow{from{text-shadow:0 0 10px ${theme.glowFrom},0 0 20px ${theme.glowFrom}}to{text-shadow:0 0 20px ${theme.glowTo},0 0 40px ${theme.glowTo}}}
+        .celOverlay{position:fixed;inset:0;z-index:3000;display:flex;flex-direction:column;align-items:center;justify-content:center;animation:overlayIn .4s ease-out forwards;}
+        @keyframes overlayIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+        .celTitle{animation:titleBounce 0.6s cubic-bezier(.36,.07,.19,.97) .2s both;}
+        @keyframes titleBounce{0%{transform:scale(0) rotate(-10deg)}60%{transform:scale(1.2) rotate(3deg)}100%{transform:scale(1) rotate(0deg)}}
+        .celEmoji{animation:emojiFloat 2s ease-in-out infinite;}
+        @keyframes emojiFloat{0%,100%{transform:translateY(0) rotate(-5deg)}50%{transform:translateY(-16px) rotate(5deg)}}
+        .celBtn{cursor:pointer;border:none;font-family:inherit;transition:transform .2s,box-shadow .2s;}
+        .celBtn:hover{transform:scale(1.07);box-shadow:0 8px 24px rgba(0,0,0,.2);}
+        .confetti{position:fixed;pointer-events:none;z-index:2999;animation:confettiFall var(--dur) linear var(--delay) forwards;}
+        @keyframes confettiFall{0%{top:-4%;opacity:1;transform:rotate(0deg) translateX(0)}100%{top:105%;opacity:.7;transform:rotate(var(--spin)) translateX(var(--sway))}}
+        @keyframes hintPulse{from{transform:scale(1.15) brightness(1)}to{transform:scale(1.25) brightness(1.2)}}
+        .hintbtn{cursor:pointer;border:none;font-family:inherit;transition:all .2s;}
+        .hintbtn:hover:not(:disabled){transform:scale(1.06);}
+        .hintbtn:disabled{opacity:.45;cursor:not-allowed;}
+      `}</style>
+
+      {/* Rainbow heart particles */}
+      {particles.map(p=>(
+        <div key={p.id} className="heart" style={{left:`${p.x}%`,animationDelay:`${p.delay}s`,"--sway":`${p.sway}px`}}>
+          <svg width={`${p.size*20}px`} height={`${p.size*20}px`} viewBox="0 0 24 24" fill={p.color} style={{filter:`drop-shadow(0 0 4px ${p.color}99)`}}>
+            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+          </svg>
+        </div>
+      ))}
+
+      {/* Critters running across grid */}
+      {critters.map(c=> c.type === "run"
+        ? <CritterRun key={c.id} emoji={c.emoji} centerY={c.centerY} gridRect={c.rect} onDone={()=>{}} />
+        : <SpinEmoji  key={c.id} emoji={c.emoji} centerX={c.centerX} centerY={c.centerY} />
+      )}
+
+      {/* Top bar */}
+      <div style={{width:"100%",maxWidth:720,display:"flex",alignItems:"center",marginBottom:10,gap:8}}>
+        <button className="backbtn" onClick={onBack}>← Themes</button>
+        <div style={{flex:1,textAlign:"center",fontSize:"1.5rem"}}>{theme.emoji}{theme.emoji2}</div>
+        <div style={{width:80}}/>
+      </div>
+
+      <h1 className="pglow" style={{
+        fontSize:"clamp(1.5rem,5vw,2.1rem)",margin:"0 0 2px",
+        color:theme.accent,fontWeight:900,letterSpacing:1,textAlign:"center",
+        textShadow:`2px 2px 0 ${theme.titleShadow}`
+      }}>{theme.name}!</h1>
+      <p style={{color:theme.accent,margin:"0 0 10px",fontSize:".88rem",fontWeight:800,opacity:.72,textAlign:"center"}}>
+        {theme.label}
+      </p>
+
+      <div style={{display:"flex",gap:14,flexWrap:"wrap",justifyContent:"center",alignItems:"flex-start"}}>
+        {/* Grid */}
+        <div ref={gridRef} onMouseLeave={endSelect} onMouseUp={endSelect} style={{
+          background:theme.cardBg,borderRadius:18,padding:10,
+          boxShadow:`0 8px 32px ${theme.accent}22`,border:`3px solid ${theme.border}`,
+          backdropFilter:"blur(8px)", position:"relative",
+        }}>
+          <table style={{borderCollapse:"collapse"}}>
+            <tbody>
+              {grid.map((row,r)=>(
+                <tr key={r}>
+                  {row.map((letter,c)=>{
+                    const key=getCellKey(r,c);
+                    const isHint = hintCells.has(key);
+                    const isSel=selKeys.has(key);
+                    const fc=foundCells[key];
+                    return (
+                      <td key={c} className="cell"
+                        onMouseDown={()=>startSelect(r,c)}
+                        onMouseEnter={()=>continueSelect(r,c)}
+                        data-r={r} data-c={c}
+                        style={{
+                          width:"clamp(25px,4.8vw,34px)",height:"clamp(25px,4.8vw,34px)",
+                          textAlign:"center",fontWeight:900,
+                          fontSize:"clamp(.68rem,1.9vw,.9rem)",
+                          color:isSel||fc?"#fff":isHint?"#fff":theme.accent,
+                          background:isSel?theme.accent+"99":fc||( isHint?"#FFB800":"transparent"),
+                          borderRadius:7,transition:"all .13s",
+                          boxShadow:isSel?`0 2px 8px ${theme.accent}55`:fc?"0 2px 6px rgba(0,0,0,.15)":isHint?"0 0 10px #FFB80099":"none",
+                          transform:isSel||isHint?"scale(1.15)":"scale(1)",
+                          animation: isHint ? "hintPulse 0.6s ease-in-out infinite alternate" : "none",
+                        }}>{letter}</td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Word list */}
+        <div style={{
+          background:theme.cardBg,borderRadius:18,padding:"12px 12px",
+          boxShadow:`0 8px 32px ${theme.accent}22`,border:`3px solid ${theme.border}`,
+          minWidth:136,
+        }}>
+          <div style={{fontWeight:900,color:theme.accent,marginBottom:7,fontSize:".9rem",textAlign:"center"}}>
+            {theme.emoji} Find These
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+            {theme.words.map((word,i)=>{
+              const isFound=foundWords.includes(word);
+              return (
+                <div key={word} className={`wchip ${isFound?"wfound":""}`} style={{
+                  padding:"3px 9px",borderRadius:20,
+                  background:isFound?theme.found[i]:theme.chipBg,
+                  color:isFound?"#fff":theme.chipText,
+                  fontWeight:800,fontSize:".78rem",
+                  textDecoration:isFound?"line-through":"none",
+                  border:`2px solid ${isFound?theme.found[i]:theme.chipBorder}`,
+                  display:"flex",alignItems:"center",gap:5,
+                }}>
+                  <span style={{fontSize:"1rem"}}>{theme.emojis[i]}</span>
+                  {isFound?"✅":""} {word}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{marginTop:8,textAlign:"center",color:theme.accent,fontWeight:700,fontSize:".75rem",opacity:.65}}>
+            {foundWords.length} / {theme.words.length} found
+          </div>
+        </div>
+      </div>
+
+      <div style={{marginTop:14,display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+        <button
+          className="hintbtn"
+          onClick={showHint}
+          disabled={hintCooldown || foundWords.length === theme.words.length}
+          style={{
+            background: hintCooldown
+              ? "rgba(180,180,180,0.3)"
+              : `linear-gradient(135deg, #FFE234, #FFB800)`,
+            border:`2px solid ${hintCooldown?"#ccc":"#FFA000"}`,
+            borderRadius:50, padding:"10px 28px",
+            fontWeight:900, fontSize:"1rem", color: hintCooldown?"#999":"#7A4800",
+            boxShadow: hintCooldown?"none":"0 4px 16px #FFB80055",
+            letterSpacing:.5,
+          }}>
+          {hintCooldown ? "⏳ Wait a moment..." : "💡 Give me a hint!"}
+        </button>
+        <div style={{color:theme.accent,fontSize:".7rem",fontWeight:700,opacity:.5}}>
+          Drag to select • Any direction! ↕↔↗↙
+        </div>
+      </div>
+    </div>
+
+    {celebrate&&(
+      <>
+        {Array.from({length:60},(_,i)=>{
+          const colors=["#FF0000","#FF6600","#FFDD00","#00CC44","#0099FF","#FF33AA","#B8A4FF","#FF9ED2"];
+          const shapes=["●","■","▲","★","♥","◆"];
+          return (
+            <div key={i} className="confetti" style={{
+              position:"fixed", zIndex:2999, pointerEvents:"none",
+              left:`${Math.random()*100}%`,
+              fontSize:`${.7+Math.random()*.8}rem`,
+              color:colors[i%colors.length],
+              "--dur":`${2+Math.random()*2}s`,
+              "--delay":`${Math.random()*.8}s`,
+              "--spin":`${(Math.random()-.5)*720}deg`,
+              "--sway":`${(Math.random()-.5)*120}px`,
+              animation:`confettiFall var(--dur) linear var(--delay) forwards`,
+            }}>{shapes[i%shapes.length]}</div>
+          );
+        })}
+        <div style={{
+          position:"fixed",inset:0,zIndex:3000,
+          display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+          background:`radial-gradient(ellipse at 50% 40%, ${theme.cardAccent}F2 0%, ${theme.border}DD 60%, ${theme.accent}88 100%)`,
+          backdropFilter:"blur(8px)",
+          fontFamily:"'Nunito','Comic Sans MS',cursive",
+          animation:"overlayIn .4s ease-out forwards",
+        }}>
+          <style>{`
+            @keyframes overlayIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
+            @keyframes celBounce{0%{transform:scale(0) rotate(-10deg)}60%{transform:scale(1.2) rotate(3deg)}100%{transform:scale(1) rotate(0)}}
+            @keyframes celFloat{0%,100%{transform:translateY(0) rotate(-5deg)}50%{transform:translateY(-16px) rotate(5deg)}}
+            @keyframes confettiFall{0%{top:-4%;opacity:1;transform:rotate(0deg) translateX(0)}100%{top:105%;opacity:.7;transform:rotate(var(--spin)) translateX(var(--sway))}}
+            .celPlayBtn{cursor:pointer;border:none;font-family:inherit;transition:transform .2s,box-shadow .2s;}
+            .celPlayBtn:hover{transform:scale(1.07);}
+          `}</style>
+          <div style={{fontSize:"6rem",marginBottom:8,animation:"celFloat 2s ease-in-out infinite"}}>{theme.emoji}</div>
+          <div style={{
+            fontSize:"clamp(2rem,8vw,3.5rem)",fontWeight:900,color:theme.accent,
+            textShadow:`3px 3px 0 white, 0 0 30px ${theme.glowFrom}`,
+            textAlign:"center",padding:"0 20px",lineHeight:1.2,
+            animation:"celBounce .6s cubic-bezier(.36,.07,.19,.97) .2s both",
+          }}>YOU DID IT! 🎉</div>
+          <div style={{fontSize:"clamp(1rem,4vw,1.4rem)",fontWeight:800,color:theme.accent,opacity:.85,margin:"12px 0 6px",textAlign:"center"}}>
+            {theme.celebrate}
+          </div>
+          <div style={{display:"flex",gap:8,margin:"10px 0 20px",fontSize:"2.2rem"}}>
+            {theme.emojis.slice(0,5).map((e,i)=>(
+              <span key={i} style={{display:"inline-block",animation:`celFloat ${1.5+i*.2}s ease-in-out ${i*.15}s infinite`}}>{e}</span>
+            ))}
+          </div>
+          <div style={{background:"white",borderRadius:16,padding:"8px 20px",marginBottom:24,color:theme.accent,fontWeight:800,fontSize:"1rem",opacity:.85}}>
+            All 10 words found! 🌟
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
+            <button className="celPlayBtn" onClick={()=>{setCelebrate(false);setFoundWords([]);setFoundCells({});setPuzzleKey(k=>k+1);}} style={{
+              background:`linear-gradient(135deg,${theme.accent},${theme.glowTo})`,
+              color:"white",borderRadius:50,padding:"14px 32px",fontWeight:900,fontSize:"1.1rem",
+              boxShadow:`0 6px 20px ${theme.accent}66`,
+            }}>🔄 Play Again</button>
+            <button className="celPlayBtn" onClick={onBack} style={{
+              background:"white",border:`3px solid ${theme.border}`,
+              color:theme.accent,borderRadius:50,padding:"14px 32px",fontWeight:900,fontSize:"1.1rem",
+            }}>🎨 New Theme</button>
+          </div>
+        </div>
+      </>
+    )}
+    </>
+  );
+}
+
+function App() {
+  const [theme, setTheme] = useState(null);
+  if (!theme) return <ThemePicker onSelect={setTheme} />;
+  return <Puzzle key={theme} themeKey={theme} onBack={()=>setTheme(null)} />;
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
