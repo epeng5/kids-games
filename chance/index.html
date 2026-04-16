@@ -27,14 +27,14 @@ const NSEGS = 1200;
 const MAX_LAPS = 5;
 const QUALI_LAPS = 3;
 const CF = 0.46;
-const BASE_MAX = 1.44;
+const BASE_MAX = 0.22;
 const KMH = 340;
 const FUEL_START = 100;
 const FUEL_RATE = 0.000055;
 const ERS_MAX = 8000;
 const ERS_DEPLOY = 22;
 const ERS_HARVEST = 6;
-const DRS_GAIN = 0.13;
+const DRS_GAIN = 0.02;
 const PIT_DUR = 175;
 const MAX_DROPS = 180;
 const MAX_SPLASH = 40;
@@ -99,25 +99,25 @@ function buildCurveTable(gz,gcam){
 
 // ── AI DRIVERS ──────────────────────────────────────────────────────────
 const AI_CFGS = [
-  {name:"NORRIS",    short:"NOR",team:"McLaren",      col:"#FF8000",startZ:1.8, base:1.032,tire:"medium",qualiBase:1145},
-  {name:"VERSTAPPEN",short:"VER",team:"Red Bull",     col:"#3671C6",startZ:2.4, base:1.038,tire:"soft",  qualiBase:1130},
-  {name:"RUSSELL",   short:"RUS",team:"Mercedes",     col:"#00D2BE",startZ:3.0, base:1.028,tire:"medium",qualiBase:1155},
-  {name:"ALONSO",    short:"ALO",team:"Aston Martin", col:"#358C75",startZ:3.6, base:1.022,tire:"hard",  qualiBase:1165},
-  {name:"LECLERC",   short:"LEC",team:"Ferrari",      col:"#cc0022",startZ:4.2, base:1.03,tire:"soft",  qualiBase:1150},
-  {name:"PIASTRI",   short:"PIA",team:"McLaren",      col:"#FF6600",startZ:4.8, base:1.03,tire:"medium",qualiBase:1148},
-  {name:"ANTONELLI", short:"ANT",team:"Mercedes",     col:"#00B8A8",startZ:5.4, base:1.025,tire:"soft",  qualiBase:1158},
-  {name:"HADJAR",    short:"HAD",team:"Red Bull",     col:"#2255AA",startZ:6.0, base:1.02,tire:"medium",qualiBase:1163},
-  {name:"BEARMAN",   short:"BEA",team:"Haas",         col:"#B6BABD",startZ:6.6, base:1.015,tire:"hard",  qualiBase:1170},
-  {name:"GASLY",     short:"GAS",team:"Alpine",       col:"#FF87BC",startZ:7.2, base:1.012,tire:"medium",qualiBase:1174},
-  {name:"COLAPINTO", short:"COL",team:"Alpine",       col:"#FF60A0",startZ:7.8, base:1.008,tire:"soft",  qualiBase:1178},
-  {name:"ALBON",     short:"ALB",team:"Williams",     col:"#64C4FF",startZ:8.4, base:1.005,tire:"medium",qualiBase:1182},
-  {name:"SAINZ",     short:"SAI",team:"Williams",     col:"#4488CC",startZ:9.0, base:1.002,tire:"hard",  qualiBase:1185},
-  {name:"HULKENBERG",short:"HUL",team:"Audi",         col:"#BB0000",startZ:9.6, base:0.998,tire:"medium",qualiBase:1190},
-  {name:"BORTOLETO", short:"BOR",team:"Audi",         col:"#990000",startZ:10.2,base:0.995,tire:"soft",  qualiBase:1193},
-  {name:"OCON",      short:"OCO",team:"Haas",         col:"#888888",startZ:10.8,base:0.992,tire:"medium",qualiBase:1197},
-  {name:"STROLL",    short:"STR",team:"Aston Martin", col:"#226655",startZ:11.4,base:0.988,tire:"hard",  qualiBase:1202},
-  {name:"PEREZ",     short:"PER",team:"Cadillac",     col:"#1B3A6B",startZ:12.0,base:0.985,tire:"medium",qualiBase:1206},
-  {name:"BOTTAS",    short:"BOT",team:"Cadillac",     col:"#152E55",startZ:12.6,base:0.982,tire:"hard",  qualiBase:1210},
+  {name:"NORRIS",    short:"NOR",team:"McLaren",      col:"#FF8000",startZ:1.8, base:0.155,tire:"medium",qualiBase:1145},
+  {name:"VERSTAPPEN",short:"VER",team:"Red Bull",     col:"#3671C6",startZ:2.4, base:0.156,tire:"soft",  qualiBase:1130},
+  {name:"RUSSELL",   short:"RUS",team:"Mercedes",     col:"#00D2BE",startZ:3.0, base:0.154,tire:"medium",qualiBase:1155},
+  {name:"ALONSO",    short:"ALO",team:"Aston Martin", col:"#358C75",startZ:3.6, base:0.153,tire:"hard",  qualiBase:1165},
+  {name:"LECLERC",   short:"LEC",team:"Ferrari",      col:"#cc0022",startZ:4.2, base:0.155,tire:"soft",  qualiBase:1150},
+  {name:"PIASTRI",   short:"PIA",team:"McLaren",      col:"#FF6600",startZ:4.8, base:0.155,tire:"medium",qualiBase:1148},
+  {name:"ANTONELLI", short:"ANT",team:"Mercedes",     col:"#00B8A8",startZ:5.4, base:0.154,tire:"soft",  qualiBase:1158},
+  {name:"HADJAR",    short:"HAD",team:"Red Bull",     col:"#2255AA",startZ:6.0, base:0.153,tire:"medium",qualiBase:1163},
+  {name:"BEARMAN",   short:"BEA",team:"Haas",         col:"#B6BABD",startZ:6.6, base:0.152,tire:"hard",  qualiBase:1170},
+  {name:"GASLY",     short:"GAS",team:"Alpine",       col:"#FF87BC",startZ:7.2, base:0.151,tire:"medium",qualiBase:1174},
+  {name:"COLAPINTO", short:"COL",team:"Alpine",       col:"#FF60A0",startZ:7.8, base:0.150,tire:"soft",  qualiBase:1178},
+  {name:"ALBON",     short:"ALB",team:"Williams",     col:"#64C4FF",startZ:8.4, base:0.149,tire:"medium",qualiBase:1182},
+  {name:"SAINZ",     short:"SAI",team:"Williams",     col:"#4488CC",startZ:9.0, base:0.148,tire:"hard",  qualiBase:1185},
+  {name:"HULKENBERG",short:"HUL",team:"Audi",         col:"#BB0000",startZ:9.6, base:0.147,tire:"medium",qualiBase:1190},
+  {name:"BORTOLETO", short:"BOR",team:"Audi",         col:"#990000",startZ:10.2,base:0.146,tire:"soft",  qualiBase:1193},
+  {name:"OCON",      short:"OCO",team:"Haas",         col:"#888888",startZ:10.8,base:0.145,tire:"medium",qualiBase:1197},
+  {name:"STROLL",    short:"STR",team:"Aston Martin", col:"#226655",startZ:11.4,base:0.144,tire:"hard",  qualiBase:1202},
+  {name:"PEREZ",     short:"PER",team:"Cadillac",     col:"#1B3A6B",startZ:12.0,base:0.143,tire:"medium",qualiBase:1206},
+  {name:"BOTTAS",    short:"BOT",team:"Cadillac",     col:"#152E55",startZ:12.6,base:0.142,tire:"hard",  qualiBase:1210},
 ];
 
 function fmtT(f){
@@ -740,10 +740,10 @@ function F1Sim(){
         gs.ersD=ersKey&&gs.ers>0;
         if(gs.ersD)gs.ers=Math.max(0,gs.ers-ERS_DEPLOY);
         else if(brake&&gs.speed>0.3)gs.ers=Math.min(ERS_MAX,gs.ers+ERS_HARVEST);
-        const top=effMax+(gs.ersD?0.08:0)+(gs.drsOpen?DRS_GAIN:0);
-        if(gas)gs.speed=Math.min(gs.speed+0.011,top);
-        else gs.speed=Math.max(gs.speed-0.006,0);
-        if(brake)gs.speed=Math.max(gs.speed-0.028,0);
+        const top=effMax+(gs.ersD?0.012:0)+(gs.drsOpen?DRS_GAIN:0);
+        if(gas)gs.speed=Math.min(gs.speed+0.002,top);
+        else gs.speed=Math.max(gs.speed-0.001,0);
+        if(brake)gs.speed=Math.max(gs.speed-0.005,0);
         if(Math.abs(gs.x)>0.88)gs.speed*=0.92;
         const grip=0.12*Math.max(0.35,1-gs.speed/BASE_MAX*0.35);
         if(left){gs.x=Math.max(gs.x-grip,-0.95);gs.steer=Math.max(gs.steer-2.2,-28);}
@@ -914,13 +914,13 @@ function F1Sim(){
           gs.ersD=ersKey&&gs.ers>0;
           if(gs.ersD)gs.ers=Math.max(0,gs.ers-ERS_DEPLOY);
           else if(brake&&gs.speed>0.3)gs.ers=Math.min(ERS_MAX,gs.ers+ERS_HARVEST);
-          const top=effMax+(gs.ersD?0.08:0)+(gs.drsOpen?DRS_GAIN:0);
-          if(gas)gs.speed=Math.min(gs.speed+0.021,top);
-          else gs.speed=Math.max(gs.speed-0.006,0);
-          if(brake)gs.speed=Math.max(gs.speed-0.028,0);
+          const top=effMax+(gs.ersD?0.012:0)+(gs.drsOpen?DRS_GAIN:0);
+          if(gas)gs.speed=Math.min(gs.speed+0.003,top);
+          else gs.speed=Math.max(gs.speed-0.001,0);
+          if(brake)gs.speed=Math.max(gs.speed-0.005,0);
           if(Math.abs(gs.x)>0.88){gs.speed*=0.95;gs.damage=Math.min(100,gs.damage+0.02);}
-          if(gs.flag===FLAG_YELLOW)gs.speed=Math.min(gs.speed,0.38);
-          if(gs.flag===FLAG_RED)gs.speed=Math.min(gs.speed,0.18);
+          if(gs.flag===FLAG_YELLOW)gs.speed=Math.min(gs.speed,0.06);
+          if(gs.flag===FLAG_RED)gs.speed=Math.min(gs.speed,0.03);
           const wetSlip=isWet&&td.dryG>0.9?gs.trackWet*0.013:0;
           const grip=0.12*Math.max(0.35,1-gs.speed/BASE_MAX*0.35)-wetSlip;
           if(left){gs.x=Math.max(gs.x-grip,-0.95);gs.steer=Math.max(gs.steer-2.2,-28);}
@@ -936,7 +936,7 @@ function F1Sim(){
           if(drsKey&&gs.drsAvail)gs.drsOpen=true;
           if(!SEGS[curSeg].drs||!gs.drsAvail)gs.drsOpen=false;
           if(gs.fc%6===0){
-            const all2=[{z:gs.z+(gs.lap-1)*NSEGS,p:true},...gs.ais.map(a=>({z:a.z+(a.lap-1)*NSEGS,p:false}))];
+            const all2=[{z:gs.z,p:true},...gs.ais.map(a=>({z:a.z,p:false}))];
             all2.sort((a,b)=>b.z-a.z);const pi=all2.findIndex(c=>c.p);
             gs.gapAhead=pi>0?+((all2[pi-1].z-all2[pi].z)*0.085).toFixed(2):null;
             gs.gapBehind=pi<all2.length-1?+((all2[pi].z-all2[pi+1].z)*0.085).toFixed(2):null;
@@ -975,7 +975,7 @@ function F1Sim(){
 
       if(gs.radioTimer>0)gs.radioTimer--;
       if(gs.fc%4===0){
-        const all3=[{z:(gs.lap-1)*NSEGS+gs.z%NSEGS,p:true},...gs.ais.map(a=>({z:(a.lap-1)*NSEGS+a.z%NSEGS,p:false}))];
+        const all3=[{z:gs.z,p:true},...gs.ais.map(a=>({z:a.z,p:false}))];
         all3.sort((a,b)=>b.z-a.z);
         setHud(h=>({...h,speed:(gs.speed/BASE_MAX*KMH)|0,lap:Math.min(gs.lap,MAX_LAPS),pos:all3.findIndex(d=>d.p)+1,
           tire:gs.tire,wear:Math.min((gs.tireWear/TIRES[gs.tire].maxWear*100)|0,100),
@@ -1240,6 +1240,39 @@ function F1Sim(){
           {pR===0?"WINNER!":pR<3?"GREAT DRIVE!":"RACE DONE!"}
           {pR===0&&" +25 PTS"}{pR===1&&" +18 PTS"}{pR===2&&" +15 PTS"}
         </h1>
+        {/* ── PODIUM ── */}
+        {results.length>=3&&(()=>{
+          const p=results.slice(0,3);
+          const order=[1,0,2]; // 2nd, 1st, 3rd
+          const heights=[90,65,50];
+          const cols=["#FFD700","#C0C0C0","#CD7F32"];
+          const labels=["1ST","2ND","3RD"];
+          return(
+            <div style={{display:"flex",alignItems:"flex-end",justifyContent:"center",gap:4,marginBottom:10,width:280}}>
+              {order.map(idx=>{
+                const d=p[idx];
+                return(
+                  <div key={idx} style={{display:"flex",flexDirection:"column",alignItems:"center",flex:1}}>
+                    <div style={{fontSize:idx===0?18:13,marginBottom:3}}>{idx===0?"🥇":idx===1?"🥈":"🥉"}</div>
+                    <div style={{fontSize:8,fontWeight:900,color:d.isPlayer?"#fff":"#ccc",marginBottom:1,textAlign:"center"}}>{d.name}</div>
+                    <div style={{fontSize:6,color:d.col,marginBottom:3}}>{d.team}</div>
+                    <div style={{
+                      width:"100%",height:heights[idx],
+                      background:`linear-gradient(180deg, ${cols[idx]}44 0%, ${cols[idx]}11 100%)`,
+                      border:`2px solid ${cols[idx]}88`,
+                      borderRadius:"6px 6px 0 0",
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      flexDirection:"column",
+                    }}>
+                      <span style={{fontSize:14,fontWeight:900,color:cols[idx]}}>{labels[idx]}</span>
+                      <span style={{fontSize:7,color:"#ff8800",marginTop:2}}>+{POINTS_TABLE[idx]} PTS</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
         <p style={{color:"#444",fontSize:8,letterSpacing:2,marginBottom:7}}>RACE RESULT</p>
         <div style={{width:290,marginBottom:8,maxHeight:"38vh",overflowY:"auto"}}>
           {results.map((r,i)=>(
