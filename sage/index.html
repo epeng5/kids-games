@@ -103,6 +103,34 @@ const THEMES = {
     moves:  [false,  false,   false,   false,  false,      false,   false,  false,  false, false],
     found:  ["#FF6B8A","#FFE234","#FF8FAB","#FFB3D9","#FFD97D","#C084FF","#FF5252","#E040FB","#FF80AB","#7B8FFF"],
   },
+  sports: {
+    name: "Sports", emoji: "⚽", emoji2: "🏆", icon: "🥇",
+    bg: "linear-gradient(135deg, #E0F5E8 0%, #D0ECFF 40%, #FFE8D0 100%)",
+    accent: "#1B7A3E", border: "#A8E0B8", chipBorder: "#7ECF9A",
+    chipBg: "rgba(168,224,184,0.2)", chipText: "#1B7A3E",
+    cardBg: "rgba(255,255,255,0.80)", titleShadow: "#A8E0B8",
+    cardAccent: "#e0f5e8", glowFrom: "#7ecf9a", glowTo: "#1b7a3e",
+    label: "Find all the sports!",
+    celebrate: "You're a champion! 🏆",
+    words:  ["SOCCER","TENNIS","HOCKEY","BASEBALL","GOLF",   "SKI",  "SWIM", "BIKE", "SKATE","RUGBY"],
+    emojis: ["⚽",   "🎾",   "🏒",   "⚾",      "⛳",    "🎿",  "🏊",  "🚴",  "⛸️",  "🏉"],
+    moves:  [true,   true,   false,  true,      false,   true,  true,  true,  true,  true],
+    found:  ["#4CAF50","#FFEB3B","#5EC8E8","#FF8A65","#8BC34A","#81D4FA","#4FC3F7","#FFB74D","#B39DDB","#A1887F"],
+  },
+  food: {
+    name: "Food", emoji: "🍕", emoji2: "🍔", icon: "🍦",
+    bg: "linear-gradient(135deg, #FFF0E0 0%, #FFE4D0 40%, #FFEFD0 100%)",
+    accent: "#D84315", border: "#FFCC99", chipBorder: "#FFB380",
+    chipBg: "rgba(255,204,153,0.25)", chipText: "#D84315",
+    cardBg: "rgba(255,255,255,0.82)", titleShadow: "#FFCC99",
+    cardAccent: "#fff0e0", glowFrom: "#ffb380", glowTo: "#d84315",
+    label: "Find all the yummy foods!",
+    celebrate: "You're a foodie superstar! 🍕🍰",
+    words:  ["PIZZA","BURGER","TACO",  "SUSHI","PASTA","COOKIE","APPLE","CHEESE","BREAD","DONUT"],
+    emojis: ["🍕",  "🍔",   "🌮",   "🍣",  "🍝",  "🍪",    "🍎",  "🧀",    "🍞",  "🍩"],
+    moves:  [false, false,  false,  false, false, false,   false, false,   false, false],
+    found:  ["#FF6B6B","#FFA552","#FFCE56","#FF8A80","#FFB347","#C88A5E","#FF5252","#FFD54F","#D7A86E","#FF80AB"],
+  },
 };
 
 const GRID_SIZE = 12;
@@ -162,7 +190,7 @@ function ThemePicker({ onSelect }) {
         @keyframes fb{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
       `}</style>
       <div style={{fontSize:"2.4rem",marginBottom:10,display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
-        <span className="f1">🦄</span><span className="f2">🐠</span><span className="f3">🌺</span><span className="f1">❄️</span><span className="f2">🌈</span><span className="f3">🌸</span>
+        <span className="f1">🦄</span><span className="f2">🐠</span><span className="f3">🌺</span><span className="f1">❄️</span><span className="f2">🌈</span><span className="f3">🌸</span><span className="f1">⚽</span><span className="f2">🍕</span>
       </div>
       <h1 className="tg" style={{fontSize:"clamp(1.8rem,7vw,2.8rem)",margin:"0 0 6px",color:"#6B3FA0",fontWeight:900,textAlign:"center"}}>
         Sage's Word Search!
