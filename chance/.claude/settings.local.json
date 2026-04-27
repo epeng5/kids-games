@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(start chrome:*)"
+      "Bash(start chrome:*)",
+      "Bash(git push:*)"
     ]
   }
 }

@@ -306,6 +306,7 @@ function Puzzle({ themeKey, onBack }) {
   const [gridRect, setGridRect] = useState(null);
   const [hintCells, setHintCells] = useState(new Set());
   const [hintCooldown, setHintCooldown] = useState(false);
+  const [hintedWords, setHintedWords] = useState(new Set());
   const gridRef = useRef(null);
   const getCellKey = (r, c) => `${r}-${c}`;
 
@@ -388,6 +389,7 @@ function Puzzle({ themeKey, onBack }) {
     // Reveal just the first 2 letters as a hint
     const hintSet = new Set(pick.cells.slice(0, 2).map(([r,c]) => getCellKey(r,c)));
     setHintCells(hintSet);
+    setHintedWords(prev => new Set(prev).add(pick.word));
     setHintCooldown(true);
     setTimeout(() => setHintCells(new Set()), 2500);
     setTimeout(() => setHintCooldown(false), 8000);
@@ -575,6 +577,9 @@ function Puzzle({ themeKey, onBack }) {
           <div style={{marginTop:8,textAlign:"center",color:theme.accent,fontWeight:700,fontSize:".75rem",opacity:.65}}>
             {foundWords.length} / {theme.words.length} found
           </div>
+          <div style={{marginTop:2,textAlign:"center",color:theme.accent,fontWeight:800,fontSize:".75rem",opacity:.85}}>
+            🌟 {foundWords.filter(w => !hintedWords.has(w)).length} found on your own!
+          </div>
         </div>
       </div>
 
@@ -655,7 +660,7 @@ function Puzzle({ themeKey, onBack }) {
             All {theme.words.length} words found! 🌟
           </div>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
-            <button className="celPlayBtn" onClick={()=>{setCelebrate(false);setFoundWords([]);setFoundCells({});setPuzzleKey(k=>k+1);}} style={{
+            <button className="celPlayBtn" onClick={()=>{setCelebrate(false);setFoundWords([]);setFoundCells({});setHintedWords(new Set());setPuzzleKey(k=>k+1);}} style={{
               background:`linear-gradient(135deg,${theme.accent},${theme.glowTo})`,
               color:"white",borderRadius:50,padding:"14px 32px",fontWeight:900,fontSize:"1.1rem",
               boxShadow:`0 6px 20px ${theme.accent}66`,
