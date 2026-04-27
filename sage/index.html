@@ -324,13 +324,21 @@ function Puzzle({ themeKey, onBack }) {
 
   const spawnParticles = () => {
     const now = Date.now();
-    const p = Array.from({length:16},(_,i)=>({
-      id:`${now}-${i}`, x:5+Math.random()*90,
+    const FLOWERS = ["🌸","🌺","🌼","🌷","🌹","🌻","💐","🪷"];
+    const hearts = Array.from({length:16},(_,i)=>({
+      id:`${now}-h-${i}`, kind:"heart", x:5+Math.random()*90,
       delay:Math.random()*.6, color:RAINBOW[i%RAINBOW.length],
       size:1.3+Math.random()*1.1, sway:(Math.random()-.5)*60,
     }));
+    const flowers = Array.from({length:14},(_,i)=>({
+      id:`${now}-f-${i}`, kind:"flower", x:3+Math.random()*94,
+      delay:Math.random()*.8, emoji:FLOWERS[Math.floor(Math.random()*FLOWERS.length)],
+      size:1.4+Math.random()*1.2, sway:(Math.random()-.5)*90,
+      spin:(Math.random()-.5)*720,
+    }));
+    const p = [...hearts, ...flowers];
     setParticles(prev=>[...prev,...p]);
-    setTimeout(()=>setParticles(prev=>prev.filter(x=>!p.find(q=>q.id===x.id))),3500);
+    setTimeout(()=>setParticles(prev=>prev.filter(x=>!p.find(q=>q.id===x.id))),3800);
   };
 
   const spawnCritter = (wordIdx, matchCells) => {
@@ -424,6 +432,8 @@ function Puzzle({ themeKey, onBack }) {
         .cell:hover{transform:scale(1.1);}
         .heart{position:fixed;top:-8%;pointer-events:none;z-index:999;animation:hfall 3s ease-in forwards;}
         @keyframes hfall{0%{top:-8%;opacity:1;transform:rotate(0) translateX(0)}80%{opacity:1}100%{top:108%;opacity:0;transform:rotate(360deg) translateX(var(--sway))}}
+        .flower{position:fixed;top:-8%;pointer-events:none;z-index:999;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2));animation:ffall 3.6s ease-in forwards;}
+        @keyframes ffall{0%{top:-8%;opacity:1;transform:rotate(0) translateX(0)}85%{opacity:1}100%{top:110%;opacity:0;transform:rotate(var(--spin)) translateX(var(--sway))}}
         .wchip{transition:all .3s;}
         .wfound{animation:wpop .5s cubic-bezier(.36,.07,.19,.97);}
         @keyframes wpop{0%,100%{transform:scale(1)}50%{transform:scale(1.25)}}
@@ -445,8 +455,12 @@ function Puzzle({ themeKey, onBack }) {
         .hintbtn:disabled{opacity:.45;cursor:not-allowed;}
       `}</style>
 
-      {/* Rainbow heart particles */}
-      {particles.map(p=>(
+      {/* Rainbow heart + flower particles */}
+      {particles.map(p=> p.kind === "flower" ? (
+        <div key={p.id} className="flower" style={{left:`${p.x}%`,fontSize:`${p.size*22}px`,animationDelay:`${p.delay}s`,"--sway":`${p.sway}px`,"--spin":`${p.spin}deg`}}>
+          {p.emoji}
+        </div>
+      ) : (
         <div key={p.id} className="heart" style={{left:`${p.x}%`,animationDelay:`${p.delay}s`,"--sway":`${p.sway}px`}}>
           <svg width={`${p.size*20}px`} height={`${p.size*20}px`} viewBox="0 0 24 24" fill={p.color} style={{filter:`drop-shadow(0 0 4px ${p.color}99)`}}>
             <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
