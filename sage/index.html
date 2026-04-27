@@ -117,6 +117,20 @@ const THEMES = {
     moves:  [true,   true,   false,  true,      false,   true,  true,  true,  true,  true],
     found:  ["#4CAF50","#FFEB3B","#5EC8E8","#FF8A65","#8BC34A","#81D4FA","#4FC3F7","#FFB74D","#B39DDB","#A1887F"],
   },
+  animals: {
+    name: "Animals", emoji: "🐶", emoji2: "🐱", icon: "🐼",
+    bg: "linear-gradient(135deg, #F0E5D8 0%, #E8D5B7 40%, #D4E8C8 100%)",
+    accent: "#5D4037", border: "#D7B89C", chipBorder: "#C99B73",
+    chipBg: "rgba(215,184,156,0.25)", chipText: "#5D4037",
+    cardBg: "rgba(255,255,255,0.82)", titleShadow: "#D7B89C",
+    cardAccent: "#f5ede0", glowFrom: "#d7b89c", glowTo: "#5d4037",
+    label: "Find all the wonderful animals!",
+    celebrate: "You're an animal expert! 🐾",
+    words:  ["ELEPHANT","TIGER","MONKEY","PANDA","GIRAFFE","ZEBRA","KOALA","RABBIT","PENGUIN","FOX",  "MOUSE","PIG"],
+    emojis: ["🐘",     "🐯",   "🐵",    "🐼",   "🦒",    "🦓",   "🐨",   "🐰",    "🐧",     "🦊",  "🐭",   "🐷"],
+    moves:  [true,     true,   true,    false,  true,    true,   false,  true,    true,     true,  true,   false],
+    found:  ["#9E9E9E","#FF8A65","#A1887F","#90A4AE","#FFD54F","#78909C","#A5A58D","#F8BBD0","#5C6BC0","#FF7043","#BCAAA4","#F48FB1"],
+  },
   food: {
     name: "Food", emoji: "🍕", emoji2: "🍔", icon: "🍦",
     bg: "linear-gradient(135deg, #FFF0E0 0%, #FFE4D0 40%, #FFEFD0 100%)",
@@ -190,7 +204,7 @@ function ThemePicker({ onSelect }) {
         @keyframes fb{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
       `}</style>
       <div style={{fontSize:"2.4rem",marginBottom:10,display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
-        <span className="f1">🦄</span><span className="f2">🐠</span><span className="f3">🌺</span><span className="f1">❄️</span><span className="f2">🌈</span><span className="f3">🌸</span><span className="f1">⚽</span><span className="f2">🍕</span>
+        <span className="f1">🦄</span><span className="f2">🐠</span><span className="f3">🌺</span><span className="f1">❄️</span><span className="f2">🌈</span><span className="f3">🌸</span><span className="f1">⚽</span><span className="f2">🐼</span><span className="f3">🍕</span>
       </div>
       <h1 className="tg" style={{fontSize:"clamp(1.8rem,7vw,2.8rem)",margin:"0 0 6px",color:"#6B3FA0",fontWeight:900,textAlign:"center"}}>
         Sage's Word Search!
@@ -638,7 +652,7 @@ function Puzzle({ themeKey, onBack }) {
             ))}
           </div>
           <div style={{background:"white",borderRadius:16,padding:"8px 20px",marginBottom:24,color:theme.accent,fontWeight:800,fontSize:"1rem",opacity:.85}}>
-            All 10 words found! 🌟
+            All {theme.words.length} words found! 🌟
           </div>
           <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
             <button className="celPlayBtn" onClick={()=>{setCelebrate(false);setFoundWords([]);setFoundCells({});setPuzzleKey(k=>k+1);}} style={{
